@@ -1,0 +1,27 @@
+{
+  "name": "textile-mm-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous market-making agent for Textile FX on Celo mainnet",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "price": "tsx scripts/price.ts",
+    "sim": "tsx sim/run.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
