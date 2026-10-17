@@ -12,10 +12,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "price": "tsx scripts/price.ts",
-    "sim": "tsx sim/run.ts"
+    "sim": "tsx sim/run.ts",
+    "wallet:new": "tsx scripts/new-wallet.ts",
+    "balances": "tsx scripts/balances.ts",
+    "identity": "tsx scripts/register-identity.ts"
   },
   "license": "MIT",
   "dependencies": {
+    "@celo/attribution-tags": "^0.5.0",
+    "viem": "^2.57.7",
     "zod": "^4.6.7"
   },
   "devDependencies": {

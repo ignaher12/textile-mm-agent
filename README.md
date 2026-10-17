@@ -41,6 +41,16 @@ npm run sim -- --sweep # compare spreads
 npm run sim -- --data devaluation --sweep
 ```
 
+Wallet setup (Celo mainnet):
+
+```bash
+cp .env.example .env   # then paste your ATTRIBUTION_TAG
+npm run wallet:new     # generates the agent wallet; key goes to .env, never printed
+npm run balances       # CELO / USD₮ / wARS / wBRL balances + attribution tag check
+```
+
+Every transaction goes through `createAgentWallet()` (`src/chain/wallet.ts`), which applies `withAttribution()` from `@celo/attribution-tags`, so no transaction can go out untagged.
+
 Example `npm run price` output:
 
 ```
