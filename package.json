@@ -15,7 +15,8 @@
     "sim": "tsx sim/run.ts",
     "wallet:new": "tsx scripts/new-wallet.ts",
     "balances": "tsx scripts/balances.ts",
-    "identity": "tsx scripts/register-identity.ts"
+    "identity": "tsx scripts/register-identity.ts",
+    "feed": "tsx scripts/feed-server.ts"
   },
   "license": "MIT",
   "dependencies": {

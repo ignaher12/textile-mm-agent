@@ -39,6 +39,7 @@ npm run price          # live reference prices for USD₮/ARS and USD₮/BRL
 npm run sim            # backtest on the last 30 days of real wARS prices
 npm run sim -- --sweep # compare spreads
 npm run sim -- --data devaluation --sweep
+npm run feed           # price feed server for Stitch on 127.0.0.1:8787
 ```
 
 Wallet setup (Celo mainnet):

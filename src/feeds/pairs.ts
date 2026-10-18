@@ -2,6 +2,7 @@ import { createPriceFeed, type PriceFeed } from "./priceFeed.js";
 import { coinGeckoSource } from "./sources/coingecko.js";
 import { criptoYaSource } from "./sources/criptoya.js";
 import { dolarApiSource } from "./sources/dolarapi.js";
+import { textileSource } from "./sources/textile.js";
 import type { FetchFn } from "./types.js";
 
 export type PairId = "USDT/ARS" | "USDT/BRL";
@@ -30,6 +31,7 @@ export function createPairFeed(pair: PairId, fetchFn: FetchFn = fetch): PriceFee
           coinGeckoSource({ coinId: COINGECKO_IDS[pair], fetchFn }),
           criptoYaSource({ fiat: "ars", fetchFn }),
           dolarApiSource({ fetchFn }),
+          textileSource({ pair: "wars-usdt", fetchFn }),
         ],
       });
     case "USDT/BRL":
@@ -39,6 +41,7 @@ export function createPairFeed(pair: PairId, fetchFn: FetchFn = fetch): PriceFee
         sources: [
           coinGeckoSource({ coinId: COINGECKO_IDS[pair], fetchFn }),
           criptoYaSource({ fiat: "brl", fetchFn }),
+          textileSource({ pair: "wbrl-usdt", fetchFn }),
         ],
       });
   }

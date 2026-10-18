@@ -33,7 +33,7 @@ An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet*
 
 ## Current state
 
-**Done** (36 tests passing, `npm test`):
+**Done** (43 tests passing, `npm test`):
 
 - `src/feeds/`: reference price from CoinGecko, CriptoYa and DolarAPI, with staleness and outlier filtering and median aggregation. `npm run price`
 - `src/engine/`: pure quoting engine (bid/ask around ref, inventory skew capped at spread/4) with clamped parameters
@@ -42,6 +42,8 @@ An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet*
 - `scripts/new-wallet.ts`: agent wallet generator (key goes to `.env`, never printed; refuses to overwrite)
 - `scripts/balances.ts`: `npm run balances`
 - `scripts/register-identity.ts`: ERC-8004 registration, dry run by default
+- `src/feeds/sources/textile.ts`: Textile's own price endpoint as a 4th source (inverted to local currency per USD₮)
+- `src/stitch/`: HTTP feed server for Stitch (`npm run feed`, `GET /price?pair=wars-usdt|wbrl-usdt`). It publishes `1 / (ref × (1 − skew))` in Stitch's format, uses `degraded: true` for pause, and answers 503 when there is no price. Skew is still a stub (0), not yet wired to live inventory.
 
 **Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.939 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
 
@@ -71,6 +73,19 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
   - **USD₮/wARS**: bid **0** (empty), ask 1616.53, **24h volume 0**. Nobody makes a two-sided wARS market.
   - **USD₮/wBRL**: bid 5.0787, ask 5.0812 (~0.05% spread), 24h volume ~600 USD₮. One competitive maker already exists.
 - **The simulator is miscalibrated.** Its default 2% spread and taker-flow model are far from Textile reality, where spreads are in basis points and wARS flow is near zero. Use it only for relative comparisons until it is recalibrated.
+
+## Stitch findings (read from source, commit dcac283, 2026-10-16)
+
+- Textile already ships a **`wars-usdt-celo` corridor** (template `src/setup/templates/wars-usdt-celo.toml`). wARS is the *collateral* (soft asset, 18 dp), USD₮ the *debt* (6 dp). Reactor on Celo: `0xa9AA…35b3`.
+  - **buy side** = pay USD₮, receive wARS (needs USD₮ + Permit2 on USD₮). We can run this today.
+  - **sell side** = sell wARS for USD₮ (needs wARS + Permit2 on wARS). This is the empty side of the market.
+- **Feed format:** `{ price, timestamp, degraded? }`. `price` is **USD₮ per token** (~0.00062 for wARS). `timestamp` is integer Unix seconds and must never be ahead of the bot clock. `degraded: true` stops quoting **without a restart**, so it is our pause/kill-switch hook. A failed fetch clears Stitch's cache, so it fails closed.
+- Textile's default feed is `https://api.textilecredit.com/price?chainId=42220&pair=wars-usdt` (also `wbrl-usdt`). We use it as one of our sources.
+- Spreads: `buy_offset_bps` / `sell_offset_bps`, set **per side**. The corridor default is 1 bps. They are read at startup, so changes need a restart.
+- **RFQ has no inventory lean.** Stitch's `lean_*` options only apply to the ladder and the limit-order taker, so publishing a skewed price is still our edge. RFQ capacity is `min(balance, Permit2 allowance)`; `*_min_slice_debt` is ladder sizing.
+- Onboarding: `stitch connect` signs a registration and writes `rfq-api.key` (the user must do this, it may ask for email). If Textile hasn't "seated" the corridor for us it says so: ask Textile.
+- **Stitch has no Celo fee abstraction** (no `feeCurrency`), so its `stitch approve` needs native CELO. We hold 0 CELO, so do the Permit2 approvals **with our own wallet** (USD₮ gas plus the attribution tag) instead.
+- Windows: `irm https://github.com/textile-protocol/textile-stitch/releases/latest/download/stitch-installer.ps1 | iex`, or the desktop app (panel on `127.0.0.1:8420`).
 
 ## Decision: execution via Stitch (option A)
 
@@ -111,7 +126,7 @@ It's unknown whether the user has sent these yet.
 ## Suggested next steps
 
 1. ~~ERC-8004 registration~~ done (agentId 9972).
-2. Install Stitch, read its config and README, and turn `src/feeds` into an HTTP feed server for Stitch (Unix-seconds timestamps).
+2. ~~Feed server for Stitch~~ done. Next: install Stitch, `stitch connect` (user), Permit2 approval on USD₮ via our wallet (mainnet tx: confirm), lower `PARAM_BOUNDS.spread` to bps, wire live inventory into the skew.
 3. Acquire wARS **outside Textile** (Ripio ramp or another Celo DEX): the side of the Textile book that would sell us wARS is empty. Without wARS the agent can't quote the empty bid side. Budget is tiny: 4.939 USD₮ so far.
 4. Update the README architecture for the RFQ/filler model, and recalibrate the simulator to bps spreads.
 5. Week 2–3: risk manager, OFF function, supervisor (NVIDIA Build), Telegram bot, then continuous mainnet operation for at least the final week.
