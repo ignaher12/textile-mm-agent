@@ -92,7 +92,7 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
 
 ## Live status (2026-10-18 02:35 UTC)
 
-- **Stitch is live** on wars-usdt-celo as maker `stitch-42220-78d8e34a`: desktop app, config in `%APPDATA%\Stitchots x78d8e34a\stitch.toml`, Textile default feed, 20/20 bps, taker leg off.
+- **Stitch is live** on wars-usdt-celo as maker `stitch-42220-78d8e34a`: desktop app, config in `%APPDATA%/Stitch/bots/0x78d8e34a/stitch.toml`, Textile default feed, 20/20 bps, taker leg off.
 - **Verify from outside** (no auth): `POST https://api.textilecredit.com/v2/rfq/preview` with `restrictedLiquidityWallets: [our wallet]`, and `GET /v2/rfq/levels?chainId=42220`. The preview restricted to us answers ~19 bps under mid with `availableSellAmount` ≈ 7,990 wARS (our ~4.93 USD₮).
 - **Real competition, read from `/v2/rfq/levels`. This corrects the ticker reading above:**
   - Trader sells wARS → USD₮ (our buy side): an incumbent quotes **at mid (~0 bps)** with ~97k USD₮ of depth. We won't win that side at 20 bps.
