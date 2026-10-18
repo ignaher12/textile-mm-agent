@@ -59,6 +59,7 @@ npm test               # 73 unit tests
 npm run price          # live reference prices for USD₮/ARS and USD₮/BRL
 npm run status         # live agent: process, wallet, feed, our quotes vs the market, fills
 npm run supervise      # one supervisor decision on live data, not applied
+npm run report         # reports/EVIDENCE.md: uptime, quoted capacity, P&L vs hold, fills, decisions
 ```
 
 Running the agent itself (see [Running it](#running-it)):
@@ -304,7 +305,7 @@ npm run balances                   # wallet balances + attribution tag check
 npm run identity -- --repo <url>   # ERC-8004 registration (dry run; add --send)
 ```
 
-State lives in `data/` (git-ignored): `risk-*.json` (kill switch), `params-*.json` (the supervisor's policy), `decisions.jsonl` (the audit log), `heartbeat.json`, `control.json` (`/pause`).
+State lives in `data/` (git-ignored): `metrics.jsonl` (a sample every 5 min: quoting state, inventory, our quotes vs the market), `risk-*.json` (kill switch), `params-*.json` (the supervisor's policy), `decisions.jsonl` (the audit log), `heartbeat.json`, `control.json` (`/pause`).
 
 ---
 
@@ -386,7 +387,8 @@ textile-mm-agent/
 - [x] Telegram bot
 - [ ] Continuous operation through the deadline, with the supervisor and Telegram live
 - [ ] Two-sided inventory (wARS) so both directions are quoted
-- [ ] Public evidence page: decisions, quotes and fills
+- [x] Evidence report (`npm run report`): uptime, quoted capacity, competitiveness, P&L vs hold, fills, decisions
+- [ ] Publish the evidence report periodically
 - [ ] Demo video
 
 ---

@@ -20,12 +20,14 @@ import { loadEnv, required } from "../src/config/env.js";
 import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
 import { createPairFeed } from "../src/feeds/pairs.js";
 import { createHeartbeatFile, type Heartbeat, type PairHealth } from "../src/lifecycle/heartbeat.js";
+import { createMetricsLog } from "../src/lifecycle/metrics.js";
 import { createShutdown, installShutdownHandlers } from "../src/lifecycle/shutdown.js";
 import { createRiskManager, DEFAULT_LIMITS, type RiskDecision } from "../src/risk/riskManager.js";
 import { createRiskStore } from "../src/risk/store.js";
 import { createFeedServer } from "../src/stitch/feedServer.js";
 import { STITCH_PAIRS } from "../src/stitch/print.js";
 import { createSkewTracker } from "../src/stitch/skew.js";
+import { marketSnapshot } from "../src/textile/market.js";
 import { createPriceHistory } from "../src/supervisor/context.js";
 import { createChat } from "../src/supervisor/llm.js";
 import { buildLiveContext } from "../src/supervisor/live.js";
@@ -270,6 +272,27 @@ const fillTimer = setInterval(async () => {
   }
 }, FILL_SCAN_EVERY_MS);
 
+// --- Metrics: a sample every 5 min for the evidence report (npm run report). --
+const METRICS_EVERY_MS = 5 * 60_000;
+const metricsLog = createMetricsLog(`${args.data}/metrics.jsonl`);
+async function sampleMetrics() {
+  const h = supervised.health;
+  const market = h.ref === null ? null : await marketSnapshot(owner, 1 / h.ref).catch(() => null);
+  const inv = h.inventory;
+  metricsLog.append({
+    t: Date.now(),
+    quoting: h.quoting && !halted,
+    reasons: h.reasons,
+    ref: h.ref,
+    skewBps: h.skewBps,
+    usdt: inv?.base ?? null,
+    local: inv?.quote ?? null,
+    navUsdt: inv && h.ref ? inv.base + inv.quote / h.ref : null,
+    market,
+  });
+}
+const metricsTimer = setInterval(() => void sampleMetrics().catch((e) => console.error("metrics:", e)), METRICS_EVERY_MS);
+
 // --- Telegram heartbeat: a status message every 6 h. If they stop, the agent is down.
 const HEARTBEAT_EVERY_MS = 6 * 3600_000;
 const heartbeatTimer = setInterval(
@@ -287,6 +310,7 @@ const { shutdown } = createShutdown({
         clearInterval(supervisorTimer);
         clearInterval(fillTimer);
         clearInterval(heartbeatTimer);
+        clearInterval(metricsTimer);
         telegram?.stop();
         heartbeat.state = "stopping";
         heartbeat.stopReason = reason;
@@ -323,5 +347,6 @@ console.log(telegram ? "📱 Telegram bot on" : "📱 Telegram off: set TELEGRAM
 await refresh();
 server.listen(port, "127.0.0.1", () => {
   console.log(`Stitch feed on http://127.0.0.1:${port}/price?pair=<${Object.keys(agents).join("|")}>  (Ctrl+C to stop)`);
+  void sampleMetrics().catch((e) => console.error("metrics:", e));
   void notify(`🟢 Agent started\n\n${formatStatus(supervised.health, 0, manualPause)}`);
 });
