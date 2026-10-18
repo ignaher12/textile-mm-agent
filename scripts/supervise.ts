@@ -3,7 +3,7 @@
 // the prompt. Without LLM_API_KEY it prints the context only.
 //
 //   npm run supervise
-import { agentAddress } from "../src/chain/wallet.js";
+import { agentAddress, selfTestTakers } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv } from "../src/config/env.js";
@@ -33,6 +33,7 @@ async function main() {
 
   const context = await buildLiveContext({
     me, client, refPrice: ref.price, history, inventory, risk, params, stitchSpreadBpsPerSide: 20, recentDecisions: [],
+    ignoreTakers: selfTestTakers(env),
     skewNow: { bps: q.skew * 1e4, imbalance: q.imbalance },
   });
   console.log("Context sent to the supervisor:\n" + JSON.stringify(context, null, 2));

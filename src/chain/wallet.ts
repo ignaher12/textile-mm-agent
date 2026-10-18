@@ -20,6 +20,19 @@ export function agentAddress(env: Env): `0x${string}` {
 }
 
 /**
+ * Our own throwaway wallets that traded against our maker to test fills end to
+ * end (`npm run swap -- --self-test`). Keep past ones here; the current
+ * TEST_TAKER_KEY's address is added automatically.
+ */
+const SELF_TEST_TAKERS = ["0x5E9829C7620aa05B3d25CD9294740C04077aC3fF"];
+
+/** Lowercased addresses whose fills are our own self-tests: listed, but never counted as volume or flow. */
+export function selfTestTakers(env: Env): Set<string> {
+  const current = env.TEST_TAKER_KEY ? [privateKeyToAccount(env.TEST_TAKER_KEY).address] : [];
+  return new Set([...SELF_TEST_TAKERS, ...current].map((a) => a.toLowerCase()));
+}
+
+/**
  * The agent's wallet client. This is the only way the agent sends
  * transactions, and it appends the ERC-8021 attribution tag to every one of
  * them, so no transaction can go out untagged.

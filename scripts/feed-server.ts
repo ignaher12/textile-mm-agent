@@ -10,8 +10,7 @@
 // GET /health returns the same heartbeat written to data/heartbeat.json.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { privateKeyToAccount } from "viem/accounts";
-import { agentAddress } from "../src/chain/wallet.js";
+import { agentAddress, selfTestTakers } from "../src/chain/wallet.js";
 import { formatStatus, handleCommand } from "../src/bot/commands.js";
 import { createTelegram } from "../src/bot/telegram.js";
 import { createCeloClient } from "../src/chain/celo.js";
@@ -47,6 +46,8 @@ const port = Number(args.port);
 
 const env = loadEnv();
 const owner = agentAddress(env);
+/** Our own test wallets: their fills are labelled, and hidden from the supervisor. */
+const testTakers = selfTestTakers(env);
 const client = createCeloClient(env.CELO_RPC_URL);
 
 // Stitch's RFQ responder drops prints older than [feed].rfq_staleness_secs
@@ -219,7 +220,7 @@ if (env.LLM_API_KEY) {
     const refPrice = supervised.health.ref;
     if (halted || !inventory || refPrice === null) return;
     const context = await buildLiveContext({
-      me: owner, client, refPrice, history: supervised.history, inventory, risk: supervised.decision,
+      me: owner, client, refPrice, history: supervised.history, inventory, risk: supervised.decision, ignoreTakers: testTakers,
       skewNow: { bps: supervised.skew.get().skew * 1e4, imbalance: supervised.skew.get().imbalance ?? 0 },
       params: supervised.params, stitchSpreadBpsPerSide: STITCH_SPREAD_BPS_PER_SIDE, recentDecisions: [...recentDecisions],
     });
@@ -262,14 +263,13 @@ if (env.LLM_API_KEY) {
 // --- Fill watcher: alert on every fill of an order we signed. ---------------
 const FILL_SCAN_EVERY_MS = 5 * 60_000;
 let fillsFrom = await client.getBlockNumber();
-const testTaker = env.TEST_TAKER_KEY ? privateKeyToAccount(env.TEST_TAKER_KEY).address.toLowerCase() : null;
 const fillTimer = setInterval(async () => {
   try {
     const head = await client.getBlockNumber();
     const fills = await findMakerFills(client, owner, fillsFrom + 1n, head);
     fillsFrom = head;
     for (const f of fills) {
-      const selfTest = testTaker !== null && f.taker.toLowerCase() === testTaker;
+      const selfTest = testTakers.has(f.taker.toLowerCase());
       void notify(`💱 Fill!${selfTest ? " (self-test, our own test wallet)" : ""} taker ${f.taker}\nhttps://celoscan.io/tx/${f.txHash}`);
     }
   } catch (e) {

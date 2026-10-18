@@ -25,6 +25,8 @@ export async function buildLiveContext(deps: {
   params: QuoteParams;
   stitchSpreadBpsPerSide: number;
   recentDecisions: SupervisorContext["recentDecisions"];
+  /** Lowercased taker addresses whose fills don't count: our own self-tests. */
+  ignoreTakers?: Set<string>;
   now?: number;
 }): Promise<SupervisorContext> {
   const now = deps.now ?? Date.now();
@@ -38,7 +40,7 @@ export async function buildLiveContext(deps: {
     deps.client
       .getBlockNumber()
       .then((head) => findMakerFills(deps.client, deps.me, head - 86_400n, head))
-      .then((f) => f.length)
+      .then((f) => f.filter((x) => !deps.ignoreTakers?.has(x.taker.toLowerCase())).length)
       .catch(() => null),
   ]);
 

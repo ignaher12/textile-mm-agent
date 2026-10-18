@@ -8,8 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import type { Address, Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { agentAddress } from "../src/chain/wallet.js";
+import { agentAddress, selfTestTakers } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
 import { loadEnv } from "../src/config/env.js";
@@ -36,20 +35,10 @@ const AGENT_TXS: { what: string; hash: Hex; rebalance?: true }[] = [
   { what: "**Taker swap on Textile RFQ: 2.4 USD₮ → 3,877.96 wARS**", hash: "0x75d829806c9df83a1486b291065d75a9771c3dac6bd423d9ff700ec1258288fd", rebalance: true },
 ];
 
-/**
- * Our own throwaway wallets that traded against our maker to test fills end to
- * end (`npm run swap -- --self-test`). Their fills are listed but not counted as
- * volume. The current TEST_TAKER_KEY's address is added automatically; keep past
- * ones here.
- */
-const SELF_TEST_TAKERS: Address[] = ["0x5E9829C7620aa05B3d25CD9294740C04077aC3fF"];
-
 const env = loadEnv();
 const me = agentAddress(env);
-const selfTestTakers = new Set(
-  [...SELF_TEST_TAKERS, ...(env.TEST_TAKER_KEY ? [privateKeyToAccount(env.TEST_TAKER_KEY).address] : [])].map((a) => a.toLowerCase()),
-);
-const isSelfTest = (f: { taker: Address }) => selfTestTakers.has(f.taker.toLowerCase());
+const testTakers = selfTestTakers(env);
+const isSelfTest = (f: { taker: Address }) => testTakers.has(f.taker.toLowerCase());
 const client = createCeloClient(env.CELO_RPC_URL);
 
 const metrics = createMetricsLog(`${args.data}/metrics.jsonl`).read();

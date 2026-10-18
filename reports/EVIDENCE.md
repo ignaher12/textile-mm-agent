@@ -1,6 +1,6 @@
 # Evidence: Textile MM Agent on Celo mainnet
 
-Generated 2026-10-18 17:00:32.931Z by `npm run report` from the agent's own logs and on-chain data.
+Generated 2026-10-18 17:25:39.408Z by `npm run report` from the agent's own logs and on-chain data.
 
 ## Identity
 
@@ -22,10 +22,10 @@ Every one carries the ERC-8021 attribution tag (enforced by `createAgentWallet()
 
 ## Operation
 
-- Period: 2026-10-18 04:09:11.125Z → 2026-10-18 16:58:18.619Z (12.8 h, 74 samples every 5 min)
-- Agent process up: **47.8%** of the period
-- Quoting: **47.2%** of the period
-- Quoted capacity × time: **14.65 USD₮·h** bidding for wARS, **13.62 USD₮·h** offering wARS
+- Period: 2026-10-18 04:09:11.125Z → 2026-10-18 17:23:18.657Z (13.2 h, 79 samples every 5 min)
+- Agent process up: **49.4%** of the period
+- Quoting: **48.8%** of the period
+- Quoted capacity × time: **15.71 USD₮·h** bidding for wARS, **14.62 USD₮·h** offering wARS
 
 Why it wasn't quoting (samples):
 
@@ -37,7 +37,7 @@ Average distance from our reference while quoting, read from outside with restri
 
 | Side | Ours | Best maker |
 |---|---|---|
-| We bid for wARS (trader sells wARS) | 19.5 bps | -0.2 bps |
+| We bid for wARS (trader sells wARS) | 19.6 bps | -0.2 bps |
 | We offer wARS (trader buys wARS) | 20.4 bps | 1.0 bps |
 
 ## P&L (mark-to-market, in USD₮ at our reference)
@@ -45,10 +45,10 @@ Average distance from our reference while quoting, read from outside with restri
 | | |
 |---|---|
 | Inventory value at start | 4.9345 USD₮ |
-| Inventory value now | 4.9285 USD₮ |
-| **P&L** | **-0.0060 USD₮** |
-| Holding the inventory instead (switched to the new mix after our own swaps, at equal value) | 4.9332 USD₮ |
-| **P&L vs hold** | **-0.0047 USD₮** |
+| Inventory value now | 4.9328 USD₮ |
+| **P&L** | **-0.0016 USD₮** |
+| Holding the inventory instead (switched to the new mix after our own swaps, at equal value) | 4.9328 USD₮ |
+| **P&L vs hold** | **0.0000 USD₮** |
 
 Balances are read from the chain, so gas and fees are already in these numbers.
 It also includes the spread the maker earned on our own self-test fills (see Fills).
@@ -63,14 +63,14 @@ Self-tests are trades from our own throwaway wallet against our maker, to check 
 
 ## Supervisor (LLM)
 
-- Calls: 44 (37 valid, 7 failed and ignored)
+- Calls: 47 (40 valid, 7 failed and ignored)
 - Policy changes applied: 2
 - Full log with the context of each call: `data/decisions.jsonl`
 
 Latest decisions:
 
-- **2026-10-18 16:13:47.397Z**: Our bid and offer are far from the market best because the 20 bps spread leaves us uncompetitive even at max skew; our quoted capacity (~2.5 USDT) is far below the typical ~100 USDT trade size, so tightening the spread would not improve fill probability. _(spread rec.: 20 bps/side)_
-- **2026-10-18 16:24:52.389Z**: Our quoted capacity (~2.5 USDT) is far below the typical ~100 USDT trade size, so tightening the spread would not improve fill probability; we keep current settings. _(spread rec.: 20 bps/side)_
-- **2026-10-18 16:33:35.973Z**: Our quotes are far from the market best due to the wide 20 bps spread, but our quoted capacity (~2.5 USDT) is far below typical trade sizes (~100 USDT), so tightening the spread would not improve fill probability; we keep current settings. _(spread rec.: 20 bps/side)_
 - **2026-10-18 16:43:53.181Z**: Our bid and offer are about 20 bps away from the market best, but our quoted capacity (~2.5 USDT) is far below the typical ~100 USDT trade size, so tightening the spread would not improve fill probability; we keep the current settings. _(spread rec.: 20 bps/side)_
 - **2026-10-18 16:53:56.575Z**: Our quoted capacity (~2.5 USDT) is far below the typical ~100 USDT trade size, so tightening the spread or adjusting inventory parameters would not improve fill probability; we keep current settings. _(spread rec.: 20 bps/side)_
+- **2026-10-18 17:03:58.362Z**: Our quoted capacity (~2.5 USDT) is far below the typical trade size (~100 USDT), so tightening the spread or adjusting inventory parameters would not improve fill probability; the market shows no disorderly moves or data issues. _(spread rec.: 20 bps/side)_
+- **2026-10-18 17:14:04.916Z**: Our bid and offer are about 20 bps away from the market best, but our quoted capacity (~2.5 USDT) is far below the typical ~100 USDT trade size, so tightening the spread or adjusting inventory parameters would not improve fill probability; the market shows no disorderly moves or data issues. _(spread rec.: 20 bps/side)_
+- **2026-10-18 17:23:35.914Z**: Market shows no disorderly moves or data issues; our quoted capacity (~2.5 USDT) is far below typical trade size (~100 USDT), so adjusting spreads or inventory parameters would not improve fill probability. _(spread rec.: 20 bps/side)_
