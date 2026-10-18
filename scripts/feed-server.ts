@@ -10,6 +10,7 @@
 // GET /health returns the same heartbeat written to data/heartbeat.json.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { privateKeyToAccount } from "viem/accounts";
 import { agentAddress } from "../src/chain/wallet.js";
 import { formatStatus, handleCommand } from "../src/bot/commands.js";
 import { createTelegram } from "../src/bot/telegram.js";
@@ -261,12 +262,16 @@ if (env.LLM_API_KEY) {
 // --- Fill watcher: alert on every fill of an order we signed. ---------------
 const FILL_SCAN_EVERY_MS = 5 * 60_000;
 let fillsFrom = await client.getBlockNumber();
+const testTaker = env.TEST_TAKER_KEY ? privateKeyToAccount(env.TEST_TAKER_KEY).address.toLowerCase() : null;
 const fillTimer = setInterval(async () => {
   try {
     const head = await client.getBlockNumber();
     const fills = await findMakerFills(client, owner, fillsFrom + 1n, head);
     fillsFrom = head;
-    for (const f of fills) void notify(`💱 Fill! taker ${f.taker}\nhttps://celoscan.io/tx/${f.txHash}`);
+    for (const f of fills) {
+      const selfTest = testTaker !== null && f.taker.toLowerCase() === testTaker;
+      void notify(`💱 Fill!${selfTest ? " (self-test, our own test wallet)" : ""} taker ${f.taker}\nhttps://celoscan.io/tx/${f.txHash}`);
+    }
   } catch (e) {
     console.error(`fill scan: ${e instanceof Error ? e.message : e}`);
   }

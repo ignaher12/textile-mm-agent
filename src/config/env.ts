@@ -14,6 +14,13 @@ const envSchema = z.object({
       .regex(/^0x[0-9a-fA-F]{64}$/, "must be a 0x-prefixed 32-byte hex key")
       .transform((v) => v as `0x${string}`),
   ),
+  /** A separate throwaway wallet that trades against our own maker to test fills end to end. Never the agent's key. */
+  TEST_TAKER_KEY: optional(
+    z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/, "must be a 0x-prefixed 32-byte hex key")
+      .transform((v) => v as `0x${string}`),
+  ),
   /** Public address of the agent wallet. Lets read-only processes (the feed, status) run without PRIVATE_KEY. */
   AGENT_ADDRESS: optional(
     z

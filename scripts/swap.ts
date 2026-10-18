@@ -5,10 +5,19 @@
 //
 //   npm run swap -- --sell USDT --amount 2.4          # dry run: indicative preview only
 //   npm run swap -- --sell USDT --amount 2.4 --send   # firm quote, approve if needed, swap
+//
+// --self-test trades from TEST_TAKER_KEY (a separate throwaway wallet) against
+// our own maker only, to check fills end to end. Those txs carry no
+// attribution tag, and the report labels the fills as self-tests, not volume.
+//
+//   npm run swap -- --self-test --sell USDT --amount 1 --send
 import { parseArgs } from "node:util";
-import { formatUnits, parseUnits, type Hex } from "viem";
+import { createWalletClient, formatUnits, http, parseUnits, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { celo } from "viem/chains";
 import { TOKENS, USDT_FEE_CURRENCY, createCeloClient, erc20AllowanceAbi, erc20BalanceAbi } from "../src/chain/celo.js";
-import { createAgentWallet } from "../src/chain/wallet.js";
+import { agentAddress, createAgentWallet } from "../src/chain/wallet.js";
+import { required } from "../src/config/env.js";
 import { loadEnv } from "../src/config/env.js";
 import { previewRfq } from "../src/textile/rfq.js";
 import { requestFirmQuote, signTakerProof, submitRfqTx } from "../src/textile/taker.js";
@@ -19,12 +28,18 @@ const MAX_SLIPPAGE = 0.002;
 
 async function main() {
   const { values: args } = parseArgs({
-    options: { sell: { type: "string" }, amount: { type: "string" }, send: { type: "boolean", default: false } },
+    options: {
+      sell: { type: "string" },
+      amount: { type: "string" },
+      send: { type: "boolean", default: false },
+      "self-test": { type: "boolean", default: false },
+    },
   });
+  const selfTest = args["self-test"];
   const pairs = { USDT: [TOKENS.USDT, TOKENS.wARS], wARS: [TOKENS.wARS, TOKENS.USDT] } as const;
   const pair = pairs[args.sell as keyof typeof pairs];
   if (!pair || !args.amount) {
-    console.error("Usage: npm run swap -- --sell USDT|wARS --amount <tokens> [--send]");
+    console.error("Usage: npm run swap -- [--self-test] --sell USDT|wARS --amount <tokens> [--send]");
     process.exitCode = 1;
     return;
   }
@@ -32,7 +47,17 @@ async function main() {
   const sellAmount = parseUnits(args.amount, sell.decimals);
 
   const env = loadEnv();
-  const { account, client: wallet } = createAgentWallet(env);
+  let account, wallet, restrictedLiquidityWallets;
+  if (selfTest) {
+    account = privateKeyToAccount(required(env, "TEST_TAKER_KEY"));
+    const maker = agentAddress(env);
+    if (account.address === maker) throw new Error("TEST_TAKER_KEY must be a different wallet from the agent's");
+    // Untagged on purpose: a self-test isn't the agent's activity.
+    wallet = createWalletClient({ account, chain: celo, transport: http(env.CELO_RPC_URL) });
+    restrictedLiquidityWallets = [maker];
+  } else {
+    ({ account, client: wallet } = createAgentWallet(env));
+  }
   const publicClient = createCeloClient(env.CELO_RPC_URL);
 
   const balance = await publicClient.readContract({
@@ -40,10 +65,13 @@ async function main() {
   });
   if (balance < sellAmount) throw new Error(`balance ${formatUnits(balance, sell.decimals)} ${sell.symbol} < ${args.amount}`);
 
-  const preview = await previewRfq({ chainId: CHAIN_ID, sellToken: sell.address, buyToken: buy.address, sellAmount });
+  const preview = await previewRfq({
+    chainId: CHAIN_ID, sellToken: sell.address, buyToken: buy.address, sellAmount,
+    ...(restrictedLiquidityWallets && { restrictTo: restrictedLiquidityWallets }),
+  });
   if ("error" in preview) throw new Error(`no indicative quote: ${preview.error}`);
   const expected = Number(formatUnits(preview.buyAmount, buy.decimals));
-  console.log(`\nTaker swap from ${account.address}`);
+  console.log(`\nTaker swap from ${account.address}` + (selfTest ? `  (SELF-TEST against our maker ${restrictedLiquidityWallets![0]})` : ""));
   console.log(`  Sell     ${args.amount} ${sell.symbol}`);
   console.log(`  Expect   ~${expected.toFixed(4)} ${buy.symbol}  (rate ${preview.rate.toPrecision(6)} USD₮ per wARS, fee included)`);
 
@@ -55,6 +83,7 @@ async function main() {
   const takerProof = await signTakerProof(account, CHAIN_ID);
   const q = await requestFirmQuote({
     chainId: CHAIN_ID, sellToken: sell.address, buyToken: buy.address, sellAmount, taker: account.address, takerProof,
+    ...(restrictedLiquidityWallets && { restrictedLiquidityWallets }),
   });
   if ("noQuote" in q) throw new Error(`no firm quote: ${q.noQuote}`);
 

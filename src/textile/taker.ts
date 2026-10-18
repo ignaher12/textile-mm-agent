@@ -71,6 +71,8 @@ export async function requestFirmQuote(req: {
   sellAmount: bigint;
   taker: Address;
   takerProof: TakerProof;
+  /** Only these makers may quote (up to 10 operator addresses). */
+  restrictedLiquidityWallets?: Address[];
 }): Promise<FirmQuote | { noQuote: string }> {
   const res = await fetch(`${API}/rfq/request`, {
     method: "POST",

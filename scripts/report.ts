@@ -7,7 +7,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { agentAddress } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
@@ -35,8 +36,20 @@ const AGENT_TXS: { what: string; hash: Hex; rebalance?: true }[] = [
   { what: "**Taker swap on Textile RFQ: 2.4 USD₮ → 3,877.96 wARS**", hash: "0x75d829806c9df83a1486b291065d75a9771c3dac6bd423d9ff700ec1258288fd", rebalance: true },
 ];
 
+/**
+ * Our own throwaway wallets that traded against our maker to test fills end to
+ * end (`npm run swap -- --self-test`). Their fills are listed but not counted as
+ * volume. The current TEST_TAKER_KEY's address is added automatically; keep past
+ * ones here.
+ */
+const SELF_TEST_TAKERS: Address[] = [];
+
 const env = loadEnv();
 const me = agentAddress(env);
+const selfTestTakers = new Set(
+  [...SELF_TEST_TAKERS, ...(env.TEST_TAKER_KEY ? [privateKeyToAccount(env.TEST_TAKER_KEY).address] : [])].map((a) => a.toLowerCase()),
+);
+const isSelfTest = (f: { taker: Address }) => selfTestTakers.has(f.taker.toLowerCase());
 const client = createCeloClient(env.CELO_RPC_URL);
 
 const metrics = createMetricsLog(`${args.data}/metrics.jsonl`).read();
@@ -132,10 +145,21 @@ function render(e: Evidence | null): string {
     lines.push("_Not enough data yet._", "");
   }
 
-  lines.push(`## Fills (${e.fills.length})`, "");
+  const tests = e.fills.filter(isSelfTest).length;
+  lines.push(`## Fills (${e.fills.length - tests} from real takers${tests ? `, ${tests} self-test` : ""})`, "");
+  if (tests) {
+    lines.push(
+      "Self-tests are trades from our own throwaway wallet against our maker, to check fills end to end. They are not volume.",
+      "",
+    );
+  }
   lines.push(
     ...(e.fills.length
-      ? e.fills.map((f) => `- block ${f.blockNumber}, taker \`${f.taker}\`: [tx](https://celoscan.io/tx/${f.txHash})`)
+      ? e.fills.map(
+          (f) =>
+            `- block ${f.blockNumber}, taker \`${f.taker}\`: [tx](https://celoscan.io/tx/${f.txHash})` +
+            (isSelfTest(f) ? " **(self-test, not volume)**" : ""),
+        )
       : ["None yet. Typical wARS trades are ~100 USD₮, above this deployment's capacity (see the README)."]),
     "",
     "## Supervisor (LLM)",
