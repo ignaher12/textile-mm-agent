@@ -8,9 +8,13 @@
 //   npm run feed -- --data tmp   # keep risk state and heartbeat elsewhere (for tests)
 //
 // GET /health returns the same heartbeat written to data/heartbeat.json.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { privateKeyToAccount } from "viem/accounts";
+import { formatStatus, handleCommand } from "../src/bot/commands.js";
+import { createTelegram } from "../src/bot/telegram.js";
 import { createCeloClient } from "../src/chain/celo.js";
+import { findMakerFills } from "../src/chain/fills.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv, required } from "../src/config/env.js";
 import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
@@ -26,7 +30,7 @@ import { createPriceHistory } from "../src/supervisor/context.js";
 import { createChat } from "../src/supervisor/llm.js";
 import { buildLiveContext } from "../src/supervisor/live.js";
 import { createParamsStore } from "../src/supervisor/paramsStore.js";
-import { createSupervisor, jsonlRecorder } from "../src/supervisor/supervisor.js";
+import { createSupervisor, jsonlRecorder, type DecisionRecord } from "../src/supervisor/supervisor.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -51,6 +55,23 @@ const STITCH_MAX_AGE_MS = 150_000;
 const GO_DARK_GRACE_MS = 3_000;
 
 let halted = false;
+
+// --- Telegram: alerts and remote control. Off without a token and chat id. ---
+const telegram =
+  env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
+    ? createTelegram({ token: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID })
+    : null;
+const notify = (text: string) =>
+  telegram ? telegram.send(text).catch((e) => console.error(`telegram: ${e instanceof Error ? e.message : e}`)) : Promise.resolve();
+
+// /pause survives restarts: a paused agent must not come back quoting on its own.
+const controlFile = `${args.data}/control.json`;
+let manualPause = existsSync(controlFile) ? Boolean(JSON.parse(readFileSync(controlFile, "utf8")).manualPause) : false;
+function setManualPause(paused: boolean) {
+  manualPause = paused;
+  mkdirSync(args.data, { recursive: true });
+  writeFileSync(controlFile, JSON.stringify({ manualPause }));
+}
 
 const agents = Object.fromEntries(
   Object.entries(STITCH_PAIRS).map(([slug, pair]) => {
@@ -94,7 +115,7 @@ const { server, refresh, stop } = createFeedServer({
   adjustment(slug) {
     const a = agents[slug]!;
     const s = a.skew.get();
-    return { skew: s.skew, paused: halted || s.paused || a.decision.paused };
+    return { skew: s.skew, paused: halted || manualPause || s.paused || a.decision.paused };
   },
   health: () => heartbeat,
   async onRefresh(slug, ref) {
@@ -123,9 +144,15 @@ const { server, refresh, stop } = createFeedServer({
     }
     if (a.decision.killed && !wasKilled) {
       console.error(`\n🔴 ${slug} KILL SWITCH TRIPPED: ${a.decision.killed}. Restart with --reset-kill to resume.\n`);
+      void notify(`🔴 ${slug} KILL SWITCH: ${a.decision.killed}\nQuoting stopped. Restart with npm start -- --reset-kill once you've checked why.`);
     }
 
-    const reasons = [...(s.inventory ? [] : ["inventory unavailable"]), ...(s.paused && s.inventory ? ["paused by params"] : []), ...a.decision.reasons];
+    const reasons = [
+      ...(manualPause ? ["paused by you (/pause)"] : []),
+      ...(s.inventory ? [] : ["inventory unavailable"]),
+      ...(s.paused && s.inventory ? ["paused by the supervisor"] : []),
+      ...a.decision.reasons,
+    ];
     const published = ref.price * (1 - s.skew);
     a.health = {
       quoting: reasons.length === 0,
@@ -139,6 +166,7 @@ const { server, refresh, stop } = createFeedServer({
       lastRefresh: Date.now(),
     };
     beat();
+    if (slug === "wars-usdt") watchQuoting(a.health);
 
     const sources = ref.used.map((q) => q.source.split(":")[0]).join(",");
     const inv = s.inventory
@@ -151,6 +179,19 @@ const { server, refresh, stop } = createFeedServer({
   },
 });
 
+// Alert on quoting ↔ paused changes, once a state has held for two refreshes
+// (a source going briefly stale shouldn't page anyone).
+let announcedQuoting: boolean | null = null;
+let pending: { quoting: boolean; count: number } | null = null;
+function watchQuoting(h: PairHealth) {
+  pending = pending?.quoting === h.quoting ? { quoting: h.quoting, count: pending.count + 1 } : { quoting: h.quoting, count: 1 };
+  if (pending.count < 2 || pending.quoting === announcedQuoting) return;
+  const first = announcedQuoting === null;
+  announcedQuoting = pending.quoting;
+  if (first && h.quoting) return; // the startup message already says so
+  void notify(h.quoting ? "🟢 wARS/USD₮ quoting again" : `🟡 wARS/USD₮ paused: ${h.reasons.join("; ")}`);
+}
+
 // --- LLM supervisor: every 10 min on wars-usdt, off without an API key. -----
 const SUPERVISOR_EVERY_MS = 10 * 60_000;
 // Must match buy_offset_bps / sell_offset_bps in stitch.toml.
@@ -158,6 +199,7 @@ const STITCH_SPREAD_BPS_PER_SIDE = 20;
 const supervised = agents["wars-usdt"]!;
 const recentDecisions: { time: string; reason: string }[] = [];
 let supervisorTimer: NodeJS.Timeout | undefined;
+let lastDecision: DecisionRecord | null = null;
 
 if (env.LLM_API_KEY) {
   const supervisor = createSupervisor({
@@ -178,6 +220,7 @@ if (env.LLM_API_KEY) {
       params: supervised.params, stitchSpreadBpsPerSide: STITCH_SPREAD_BPS_PER_SIDE, recentDecisions: [...recentDecisions],
     });
     const r = await supervisor.run(context);
+    lastDecision = r;
     const time = new Date().toISOString().slice(11, 19);
     if (r.decision) {
       recentDecisions.push({ time: r.time, reason: r.decision.reason });
@@ -187,6 +230,17 @@ if (env.LLM_API_KEY) {
         `${time} 🧠 supervisor: share ${p.targetBaseShare} skew ${(p.maxSkew * 1e4).toFixed(1)} bps band ${p.inventoryBand}` +
           `${p.paused ? " PAUSED" : ""} — ${r.decision.reason}`,
       );
+      const b = r.before;
+      const changed =
+        b.targetBaseShare !== p.targetBaseShare || b.maxSkew !== p.maxSkew || b.inventoryBand !== p.inventoryBand || b.paused !== p.paused;
+      if (changed) {
+        void notify(
+          `🧠 Supervisor changed the policy\n${r.decision.reason}\n\n` +
+            `USD₮ share ${b.targetBaseShare} → ${p.targetBaseShare}, max skew ${(b.maxSkew * 1e4).toFixed(1)} → ` +
+            `${(p.maxSkew * 1e4).toFixed(1)} bps, band ${b.inventoryBand} → ${p.inventoryBand}` +
+            (b.paused !== p.paused ? `, paused ${b.paused} → ${p.paused}` : ""),
+        );
+      }
     } else {
       console.log(`${time} 🧠 supervisor failed, keeping params: ${r.error}`);
     }
@@ -199,6 +253,27 @@ if (env.LLM_API_KEY) {
   console.log("🧠 supervisor off: set LLM_API_KEY in .env to enable it");
 }
 
+// --- Fill watcher: alert on every fill of an order we signed. ---------------
+const FILL_SCAN_EVERY_MS = 5 * 60_000;
+let fillsFrom = await client.getBlockNumber();
+const fillTimer = setInterval(async () => {
+  try {
+    const head = await client.getBlockNumber();
+    const fills = await findMakerFills(client, owner, fillsFrom + 1n, head);
+    fillsFrom = head;
+    for (const f of fills) void notify(`💱 Fill! taker ${f.taker}\nhttps://celoscan.io/tx/${f.txHash}`);
+  } catch (e) {
+    console.error(`fill scan: ${e instanceof Error ? e.message : e}`);
+  }
+}, FILL_SCAN_EVERY_MS);
+
+// --- Telegram heartbeat: a status message every 6 h. If they stop, the agent is down.
+const HEARTBEAT_EVERY_MS = 6 * 3600_000;
+const heartbeatTimer = setInterval(
+  () => void notify(`💓 ${formatStatus(supervised.health, Date.now() - heartbeat.startedAt, manualPause)}`),
+  HEARTBEAT_EVERY_MS,
+);
+
 const { shutdown } = createShutdown({
   steps: [
     {
@@ -207,6 +282,9 @@ const { shutdown } = createShutdown({
       async run(reason) {
         halted = true;
         clearInterval(supervisorTimer);
+        clearInterval(fillTimer);
+        clearInterval(heartbeatTimer);
+        telegram?.stop();
         heartbeat.state = "stopping";
         heartbeat.stopReason = reason;
         beat();
@@ -214,6 +292,7 @@ const { shutdown } = createShutdown({
       },
     },
     { name: "save risk state", run: () => Object.values(agents).forEach((a) => a.store.save(a.risk.snapshot())) },
+    { name: "notify Telegram", run: (reason) => notify(`🔴 Agent stopped (${reason}). Stitch is not quoting.`) },
     { name: "stop feed server", run: () => stop() },
     {
       name: "final heartbeat",
@@ -226,7 +305,20 @@ const { shutdown } = createShutdown({
 });
 installShutdownHandlers(shutdown);
 
+telegram?.listen(async (text) =>
+  handleCommand(text, {
+    health: () => supervised.health,
+    uptimeMs: () => Date.now() - heartbeat.startedAt,
+    lastDecision: () => lastDecision,
+    manualPause: () => manualPause,
+    setManualPause,
+    off: (reason) => void shutdown(reason).then((r) => process.exit(r.failed.length > 0 ? 1 : 0)),
+  }),
+);
+console.log(telegram ? "📱 Telegram bot on" : "📱 Telegram off: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env");
+
 await refresh();
 server.listen(port, "127.0.0.1", () => {
   console.log(`Stitch feed on http://127.0.0.1:${port}/price?pair=<${Object.keys(agents).join("|")}>  (Ctrl+C to stop)`);
+  void notify(`🟢 Agent started\n\n${formatStatus(supervised.health, 0, manualPause)}`);
 });
