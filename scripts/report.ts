@@ -42,7 +42,7 @@ const AGENT_TXS: { what: string; hash: Hex; rebalance?: true }[] = [
  * volume. The current TEST_TAKER_KEY's address is added automatically; keep past
  * ones here.
  */
-const SELF_TEST_TAKERS: Address[] = [];
+const SELF_TEST_TAKERS: Address[] = ["0x5E9829C7620aa05B3d25CD9294740C04077aC3fF"];
 
 const env = loadEnv();
 const me = agentAddress(env);
@@ -139,6 +139,7 @@ function render(e: Evidence | null): string {
       `| **P&L vs hold** | **${usd(e.pnl.vsHoldUsdt)}** |`,
       "",
       "Balances are read from the chain, so gas and fees are already in these numbers.",
+      ...(e.fills.some(isSelfTest) ? ["It also includes the spread the maker earned on our own self-test fills (see Fills)."] : []),
       "",
     );
   } else {
