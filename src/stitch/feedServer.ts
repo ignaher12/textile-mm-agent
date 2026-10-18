@@ -11,7 +11,8 @@ export interface FeedServerOptions {
   /** Current skew and pause state per slug. Defaults to no adjustment. */
   adjustment?: (slug: string) => PrintAdjustment;
   now?: () => number;
-  onRefresh?: (slug: string, ref: ReferencePrice) => void;
+  /** Runs after each refresh, before the new price is served (e.g. to recompute skew). */
+  onRefresh?: (slug: string, ref: ReferencePrice) => void | Promise<void>;
 }
 
 const NO_ADJUSTMENT: PrintAdjustment = { skew: 0, paused: false };
@@ -35,8 +36,8 @@ export function createFeedServer(opts: FeedServerOptions): {
     await Promise.all(
       Object.entries(feeds).map(async ([slug, feed]) => {
         const ref = await feed.get();
+        await onRefresh?.(slug, ref);
         latest.set(slug, ref);
-        onRefresh?.(slug, ref);
       }),
     );
   }

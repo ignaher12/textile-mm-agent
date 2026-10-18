@@ -1,11 +1,14 @@
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { TOKENS } from "../src/chain/celo.js";
+import { readInventory } from "../src/chain/inventory.js";
 import type { ReferencePrice } from "../src/feeds/aggregate.js";
 import { textileSource } from "../src/feeds/sources/textile.js";
 import type { FetchFn } from "../src/feeds/types.js";
 import { DEFAULT_PARAMS } from "../src/engine/params.js";
 import { computeQuotes } from "../src/engine/quote.js";
 import { createFeedServer } from "../src/stitch/feedServer.js";
+import { createSkewTracker } from "../src/stitch/skew.js";
 import { toStitchPrint } from "../src/stitch/print.js";
 
 const NOW = 1_792_274_600_000;
@@ -82,5 +85,60 @@ describe("createFeedServer", () => {
     const get = await serve(none);
     expect((await get("/price?pair=wars-usdt")).status).toBe(503);
     expect((await get("/price?pair=nope")).status).toBe(400);
+  });
+});
+
+describe("createSkewTracker", () => {
+  const params = () => DEFAULT_PARAMS;
+
+  it("starts paused until inventory is known", () => {
+    const t = createSkewTracker({ params, readInventory: async () => ({ base: 1, quote: 1600 }) });
+    expect(t.get().paused).toBe(true);
+  });
+
+  it("publishes the engine's skew for the live inventory", async () => {
+    const inventory = { base: 4.93, quote: 0 }; // all USD₮, like the live wallet today
+    const t = createSkewTracker({ params, readInventory: async () => inventory });
+    const s = await t.update(1600);
+    expect(s).toMatchObject({ paused: false, inventory, baseShare: 1, imbalance: 1 });
+    // Full imbalance hits the cap: a quarter of the spread.
+    expect(s.skew).toBeCloseTo(DEFAULT_PARAMS.spread / 4, 12);
+    expect(s.skew).toBe(computeQuotes(1600, DEFAULT_PARAMS, inventory).skew);
+  });
+
+  it("pauses when an inventory read fails", async () => {
+    let fail = false;
+    const t = createSkewTracker({
+      params,
+      readInventory: async () => {
+        if (fail) throw new Error("rpc down");
+        return { base: 2, quote: 3200 };
+      },
+    });
+    await t.update(1600);
+    expect(t.get().paused).toBe(false);
+    fail = true;
+    expect((await t.update(1600)).paused).toBe(true);
+  });
+
+  it("follows the supervisor's pause", async () => {
+    const t = createSkewTracker({
+      params: () => ({ ...DEFAULT_PARAMS, paused: true }),
+      readInventory: async () => ({ base: 2, quote: 3200 }),
+    });
+    expect((await t.update(1600)).paused).toBe(true);
+  });
+});
+
+describe("readInventory", () => {
+  it("reads USD₮ and the pair's wFiat token with their decimals", async () => {
+    const client = {
+      readContract: async ({ address }: { address: string }) =>
+        address === TOKENS.USDT.address ? 4_934_481n : 1_616n * 10n ** 18n,
+    } as unknown as Parameters<typeof readInventory>[0];
+    expect(await readInventory(client, "0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3", "USDT/ARS")).toEqual({
+      base: 4.934481,
+      quote: 1616,
+    });
   });
 });

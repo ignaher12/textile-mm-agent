@@ -21,11 +21,16 @@ export const FEED_DEFAULTS = {
   maxDeviation: 0.03,
 } as const;
 
-export function createPairFeed(pair: PairId, fetchFn: FetchFn = fetch): PriceFeed {
+export function createPairFeed(
+  pair: PairId,
+  fetchFn: FetchFn = fetch,
+  overrides: Partial<typeof FEED_DEFAULTS> = {},
+): PriceFeed {
+  const defaults = { ...FEED_DEFAULTS, ...overrides };
   switch (pair) {
     case "USDT/ARS":
       return createPriceFeed({
-        ...FEED_DEFAULTS,
+        ...defaults,
         minSources: 2,
         sources: [
           coinGeckoSource({ coinId: COINGECKO_IDS[pair], fetchFn }),
@@ -36,7 +41,7 @@ export function createPairFeed(pair: PairId, fetchFn: FetchFn = fetch): PriceFee
       });
     case "USDT/BRL":
       return createPriceFeed({
-        ...FEED_DEFAULTS,
+        ...defaults,
         minSources: 2,
         sources: [
           coinGeckoSource({ coinId: COINGECKO_IDS[pair], fetchFn }),

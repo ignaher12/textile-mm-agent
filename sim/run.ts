@@ -62,7 +62,7 @@ console.log(
 console.log(`Capital: ${capital} USD₮ (balanced) · fill model: ${JSON.stringify(baseConfig.fillModel)}\n`);
 
 if (args.sweep) {
-  const rows = [0.005, 0.01, 0.02, 0.03, 0.05, 0.08].map((spread) => {
+  const rows = [0.0005, 0.001, 0.002, 0.004, 0.01, 0.02, 0.05].map((spread) => {
     const result = runSimulation({ ...baseConfig, params: clampParams({ ...params, spread }) });
     return { spread: pct(spread), ...summarize(result) };
   });
