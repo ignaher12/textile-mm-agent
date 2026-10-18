@@ -110,12 +110,16 @@ async function main() {
   const swap = await send("Swap", q.transactions.swap);
   await submitRfqTx(q.rfqId, q.claimToken, swap.transactionHash);
 
+  console.log(`✅ Swap settled in block ${swap.blockNumber}.`);
   // Read at the swap's block: a load-balanced RPC may otherwise answer from a node that hasn't seen it yet.
-  const after = await publicClient.readContract({
-    address: buy.address, abi: erc20BalanceAbi, functionName: "balanceOf", args: [account.address],
-    blockNumber: swap.blockNumber,
-  });
-  console.log(`✅ Done. Wallet now holds ${formatUnits(after, buy.decimals)} ${buy.symbol}.`);
+  // That node may not know the block either, so this is informative only and never fails the run.
+  const read = (blockNumber?: bigint) =>
+    publicClient.readContract({
+      address: buy.address, abi: erc20BalanceAbi, functionName: "balanceOf", args: [account.address],
+      ...(blockNumber !== undefined && { blockNumber }),
+    });
+  const after = await read(swap.blockNumber).catch(() => read()).catch(() => null);
+  console.log(after === null ? "  (couldn't read the new balance; check with npm run balances)" : `  Wallet now holds ${formatUnits(after, buy.decimals)} ${buy.symbol}.`);
 }
 
 await main();
