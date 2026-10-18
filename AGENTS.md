@@ -2,7 +2,7 @@
 
 Handoff notes for coding agents working on this repo. Read this first, then `README.md` (architecture and design).
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-18.
 
 ## The user
 
@@ -146,8 +146,10 @@ Checked against docs.textilecredit.com on 2026-10-17. The docs answer only part 
 
 ## Suggested next steps
 
-1. ~~ERC-8004 registration~~ done (agentId 9972).
-2. ~~Feed server for Stitch~~ done. USD₮ Permit2 done. Stitch v0.1.321 unpacked in `C:\Users\ignah\Stitch`. Next: user sets up the desktop app and emails Textile for seating, ~~bps bounds and live skew~~ done (spread bounds 2 bps–10%, default 0.004 = 20+20 bps, mirroring stitch.toml). Next: point Stitch at our feed and keep `npm run feed` running.
-3. Acquire wARS **outside Textile** (Ripio ramp or another Celo DEX): the side of the Textile book that would sell us wARS is empty. Without wARS the agent can't quote the empty bid side. Budget is tiny: 4.934 USD₮ so far.
-4. Update the README architecture for the RFQ/filler model, and recalibrate the simulator to bps spreads.
-5. Week 2–3: risk manager, OFF function, supervisor (NVIDIA Build), Telegram bot, then continuous mainnet operation for at least the final week.
+Done as of 2026-10-18: live RFQ quoting via Stitch, skewed feed, risk manager + kill switch, OFF function + heartbeat, `npm run status`, LLM supervisor, Telegram bot, README rewritten for the RFQ architecture.
+
+1. **User:** run the agent with `npm start` (replaces `npm run feed`; same process plus supervisor and Telegram). Add `LLM_API_KEY` (NVIDIA Build) and test with `npm run supervise`. Create a Telegram bot (@BotFather), set `TELEGRAM_BOT_TOKEN`, message the bot, then set `TELEGRAM_CHAT_ID` from `npm run telegram:chat-id`.
+2. **User:** ask the hackathon organizers how maker volume/P&L is credited when the taker broadcasts, whether the tag on our own txs suffices, whether Stitch as execution is fine, and whether judging is absolute or relative to capital.
+3. Optional, needs a mainnet OK: buy ~2.4 USD₮ of wARS as a taker on Textile (`/v2/rfq/request` + takerProof, tagged tx), so both sides are quoted.
+4. Public evidence page (decisions.jsonl, quotes, fills), a P&L-vs-hold report, and the demo video.
+5. Keep the agent running 24/7 through the deadline (Oracle Cloud Always Free, or the local PC with sleep disabled).
