@@ -72,6 +72,7 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
   - VaultOrderExecutor `0x01b006d5c687bde182aa36F542f1f014144742e2`
 - **Live market** (public feed `https://api.textilecredit.com/tickers`, checked 2026-10-17):
   - **USD₮/wARS**: bid **0** (empty), ask 1616.53, **24h volume 0**. Nobody makes a two-sided wARS market.
+  - **But wARS has real history** (`GET /historical_trades?ticker_id=USDT_WARS&limit=1000`, timestamps in seconds): ~1,230 fills and ~251k USD₮ since 2026-07-15, on both sides (buy 126k, sell 126k). Late Sep to mid Oct ran ~1–7k USD₮/day; the last fill was 2026-10-16. Two ~60k days (Sep 4 and 6) are outliers. The ticker's "24h volume 0" is just a quiet day, and "bid 0" means one side's maker went dark (likely ran out of inventory). wBRL `historical_trades` currently errors ("Failed to build historical trades").
   - **USD₮/wBRL**: bid 5.0787, ask 5.0812 (~0.05% spread), 24h volume ~600 USD₮. One competitive maker already exists.
 - **The simulator is miscalibrated.** Its default 2% spread and taker-flow model are far from Textile reality, where spreads are in basis points and wARS flow is near zero. Use it only for relative comparisons until it is recalibrated.
 
@@ -105,6 +106,10 @@ Checked against docs.textilecredit.com on 2026-10-17. The docs answer only part 
 - **Limit-order taking costs native gas.** The guide says to leave "Fill users' resting limit orders" on, but Stitch can't pay gas in USD₮ and we hold 0 CELO, so keep it **off** until we hold CELO.
 - **Maker protocol (answered: not documented):** the v2 API documents only the trader side (`/v2/rfq/request`, `/submit`, …). The maker stream is only in Stitch's source. The docs only describe Stitch.
 - **Settlement (partly answered):** the taker broadcasts the swap; Textile never broadcasts. The reactor is UniswapX `LimitOrderReactor` v2.1.0, so on-chain our wallet appears as the order **swapper** (signer) in the `Fill` event, and the taker as the filler/msg.sender. Our ERC-8021 tag is not in that tx.
+- **Steering (answered):** traders can send `restrictedLiquidityWallets` / `preferredLiquidityWallets` (≤ 10 Stitch operator addresses, no credential needed) to `/v2/rfq/preview` and `/request`. Useful for an end-to-end test against our own maker; don't count self-routed trades as volume (that's wash trading).
+- **Monitoring (answered):** `/historical_trades` gives per-fill `trade_id` = tx hash + log index, so we can match our fills on-chain (Fill event swapper = our wallet). No per-maker API.
+- **Testnet:** only cNGN corridors (BSC testnet, Base Sepolia). No wARS testnet.
+- **Ramps:** the deposit/withdrawal partners page only covers NGN ↔ cNGN. Getting wARS is not documented.
 - **Still open (ask the hackathon organizers, not Textile):** how judges credit a maker's volume and P&L when the taker sends the tx and our tag isn't in it; whether Stitch plus our own feed and supervisor counts as originality; whether wARS taker flow is expected.
 
 ## Stack and decisions already made
