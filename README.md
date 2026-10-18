@@ -402,10 +402,10 @@ textile-mm-agent/
 ## Hackathon requirements
 
 - [x] Enrolled on [Loops House](https://www.loops.house/agents-on-open-rails) and got the **attribution tag**
-- [ ] **Attribution tag (ERC-8021)** in the calldata of **every** transaction ([attribution-tags](https://github.com/celo-org/attribution-tags)). Untagged transactions can't be credited later.
-- [ ] Agent's **ERC-8004 identity** registered before the deadline ([docs](https://docs.celo.org/build-on-celo/build-with-ai/8004) · [8004scan](https://8004scan.io))
+- [x] **Attribution tag (ERC-8021)** in the calldata of **every** transaction ([attribution-tags](https://github.com/celo-org/attribution-tags)). Untagged transactions can't be credited later.
+- [x] Agent's **ERC-8004 identity** registered: **agentId 9972** ([tx](https://celoscan.io/tx/0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148)), registered ([docs](https://docs.celo.org/build-on-celo/build-with-ai/8004) · [8004scan](https://8004scan.io))
 - [ ] Trades on **Celo mainnet** (chain id `42220`). Testnet transactions don't count.
-- [ ] **Public GitHub repo** from enrollment through judging
+- [x] **Public GitHub repo** from enrollment through judging
 - [x] Code written during the hackathon
 
 **Dates**
@@ -425,7 +425,7 @@ textile-mm-agent/
 - [x] Quoting engine with tests
 - [x] Simulator on historical and synthetic prices
 - [x] Enrollment and attribution tag
-- [ ] ERC-8004 registration
+- [x] ERC-8004 registration (agentId 9972)
 - [ ] Find out how to integrate with Textile
 
 ### Week 2: on-chain

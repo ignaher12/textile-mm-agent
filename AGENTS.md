@@ -26,8 +26,8 @@ An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet*
 |---|---|
 | Enrolled on Loops House, attribution tag obtained | ✅ tag in `.env` (`ATTRIBUTION_TAG`) |
 | ERC-8021 attribution tag on every transaction | ✅ enforced by `createAgentWallet()` in `src/chain/wallet.ts` |
-| ERC-8004 identity registered | ⏳ dry run OK, **awaiting the user's confirmation** to send |
-| Transactions on Celo mainnet (testnet doesn't count) | ⏳ none yet |
+| ERC-8004 identity registered | ✅ agentId **9972** ([tx](https://celoscan.io/tx/0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148)) |
+| Transactions on Celo mainnet (testnet doesn't count) | ✅ first tx sent (the ERC-8004 registration, tagged) |
 | Public GitHub repo | ✅ |
 | Code written during the hackathon | ✅ |
 
@@ -43,13 +43,9 @@ An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet*
 - `scripts/balances.ts`: `npm run balances`
 - `scripts/register-identity.ts`: ERC-8004 registration, dry run by default
 
-**Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.95 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
+**Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.939 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
 
-**Pending ERC-8004 registration.** The dry run succeeded (predicted agentId 9972, cost ≈ $0.01). It is irreversible, so **confirm with the user before running**:
-
-```bash
-npm run identity -- --repo https://github.com/ignaher12/textile-mm-agent --send
-```
+**ERC-8004 identity: agentId 9972**, registered 2026-10-17 from the agent wallet (cost ≈ 0.011 USD₮). The calldata carries the attribution tag and the ERC-8021 suffix.
 
 ## Key findings about Textile (they change the README's original design)
 
@@ -76,14 +72,14 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
   - **USD₮/wBRL**: bid 5.0787, ask 5.0812 (~0.05% spread), 24h volume ~600 USD₮. One competitive maker already exists.
 - **The simulator is miscalibrated.** Its default 2% spread and taker-flow model are far from Textile reality, where spreads are in basis points and wARS flow is near zero. Use it only for relative comparisons until it is recalibrated.
 
-## Decision pending with the user
+## Decision: execution via Stitch (option A)
 
-How to execute on Textile:
+Decided with the user on 2026-10-17:
 
-- **Option A (recommended): Stitch as the execution layer, with our agent on top.** Our price feed becomes Stitch's feed URL. We inject inventory skew and supervisor adjustments through the published price, and the LLM supervisor tunes spreads (config plus restart). This is the fastest path to mainnet volume.
-- **Option B: our own TypeScript filler.** Requires reverse-engineering the maker protocol from Stitch's source. More control, but riskier with ~3 weeks left.
+- **Option A (chosen): Stitch as the execution layer, with our agent on top.** Our price feed becomes Stitch's feed URL. We inject inventory skew and supervisor adjustments through the published price, and the LLM supervisor tunes spreads (config plus restart). This is the fastest path to mainnet volume.
+- **Option B (rejected for now): our own TypeScript filler.** Requires reverse-engineering the maker protocol from Stitch's source. More control, but riskier with ~3 weeks left.
 
-Also recommended: **start with wARS**. There is no competition and the "two-sided liquidity for the Argentine peso" story is strong.
+Also decided: **start with wARS**. There is no competition and the "two-sided liquidity for the Argentine peso" story is strong.
 
 ## Open questions (for the hackathon Telegram / contact@textilecredit.com)
 
@@ -114,8 +110,8 @@ It's unknown whether the user has sent these yet.
 
 ## Suggested next steps
 
-1. Get the user's go-ahead and send the ERC-8004 registration (`--send`), then record the agentId here and in the README.
-2. Settle option A vs B with the user. If A: install Stitch, read its config and README, and turn `src/feeds` into an HTTP feed server for Stitch (Unix-seconds timestamps).
-3. Acquire a small amount of wARS (Textile swap or Ripio ramp) so both sides can be quoted. Budget is tiny: 4.95 USD₮ so far.
+1. ~~ERC-8004 registration~~ done (agentId 9972).
+2. Install Stitch, read its config and README, and turn `src/feeds` into an HTTP feed server for Stitch (Unix-seconds timestamps).
+3. Acquire wARS **outside Textile** (Ripio ramp or another Celo DEX): the side of the Textile book that would sell us wARS is empty. Without wARS the agent can't quote the empty bid side. Budget is tiny: 4.939 USD₮ so far.
 4. Update the README architecture for the RFQ/filler model, and recalibrate the simulator to bps spreads.
 5. Week 2–3: risk manager, OFF function, supervisor (NVIDIA Build), Telegram bot, then continuous mainnet operation for at least the final week.
