@@ -11,6 +11,8 @@ export interface FeedServerOptions {
   /** Current skew and pause state per slug. Defaults to no adjustment. */
   adjustment?: (slug: string) => PrintAdjustment;
   now?: () => number;
+  /** Served as JSON on `GET /health`, for monitoring. */
+  health?: () => unknown;
   /** Runs after each refresh, before the new price is served (e.g. to recompute skew). */
   onRefresh?: (slug: string, ref: ReferencePrice) => void | Promise<void>;
 }
@@ -29,7 +31,7 @@ export function createFeedServer(opts: FeedServerOptions): {
   refresh(): Promise<void>;
   stop(): void;
 } {
-  const { feeds, refreshMs, adjustment = () => NO_ADJUSTMENT, now = Date.now, onRefresh } = opts;
+  const { feeds, refreshMs, adjustment = () => NO_ADJUSTMENT, now = Date.now, onRefresh, health } = opts;
   const latest = new Map<string, ReferencePrice>();
 
   async function refresh() {
@@ -46,6 +48,7 @@ export function createFeedServer(opts: FeedServerOptions): {
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/health" && health) return send(res, 200, health());
     if (req.method !== "GET" || url.pathname !== "/price") return send(res, 404, { error: "not found" });
 
     const slug = url.searchParams.get("pair") ?? "";

@@ -1,5 +1,6 @@
 // One-screen health check of the live agent, read entirely from the outside:
-// wallet, our feed vs Textile's, our live quotes vs the market, recent fills.
+// agent process, wallet, our feed vs Textile's, our live quotes vs the market,
+// recent fills.
 //
 //   npm run status                # fills from the last 24 h
 //   npm run status -- --hours 72
@@ -10,12 +11,14 @@ import { TOKENS, createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv, required } from "../src/config/env.js";
+import { createHeartbeatFile, heartbeatSchema, type Heartbeat } from "../src/lifecycle/heartbeat.js";
 import { previewRfq, type Preview } from "../src/textile/rfq.js";
 
 const { values: args } = parseArgs({
   options: {
     hours: { type: "string", default: "24" },
     feed: { type: "string", default: "http://127.0.0.1:8787/price?pair=wars-usdt" },
+    data: { type: "string", default: "data" },
   },
 });
 
@@ -37,12 +40,51 @@ async function getJson(url: string): Promise<{ price: number; timestamp: number;
   }
 }
 
+async function getHealth(): Promise<Heartbeat | null> {
+  try {
+    const res = await fetch(new URL("/health", args.feed), { signal: AbortSignal.timeout(5_000) });
+    return res.ok ? heartbeatSchema.parse(await res.json()) : null;
+  } catch {
+    return null;
+  }
+}
+
+const ago = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return s < 120 ? `${s}s` : s < 7200 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+};
+
+function printAgent(live: Heartbeat | null) {
+  console.log(`\nAgent process`);
+  const hb = live ?? createHeartbeatFile(`${args.data}/heartbeat.json`).read();
+  if (!hb) return console.log("  ✗ no heartbeat: the feed server has never run here (or --data points elsewhere)");
+
+  const age = Date.now() - hb.at;
+  if (!live) {
+    console.log(
+      hb.state === "running"
+        ? `  ✗ DOWN: last heartbeat ${ago(age)} ago while running — crashed, killed or the PC slept`
+        : `  ✗ STOPPED ${ago(age)} ago (clean OFF: ${hb.stopReason ?? "unknown"})`,
+    );
+  } else {
+    console.log(`  ✓ ${hb.state}, up ${ago(hb.at - hb.startedAt)}, last refresh ${ago(age)} ago`);
+  }
+  const pair = hb.pairs["wars-usdt"];
+  if (pair) {
+    console.log(
+      `  wars-usdt  ${pair.quoting ? "quoting" : `PAUSED: ${pair.reasons.join("; ")}`}` +
+        `  skew ${pair.skewBps.toFixed(1)} bps  drawdown ${(pair.drawdown * 100).toFixed(2)}%`,
+    );
+  }
+}
+
 async function main() {
-  const [inventory, textile, ours, head] = await Promise.all([
+  const [inventory, textile, ours, head, health] = await Promise.all([
     readInventory(client, me, "USDT/ARS"),
     getJson(`https://api.textilecredit.com/price?chainId=${CHAIN_ID}&pair=wars-usdt`),
     getJson(args.feed),
     client.getBlockNumber(),
+    getHealth(),
   ]);
   if (!textile) throw new Error("Textile price endpoint unreachable");
   const mid = textile.price; // USD₮ per wARS
@@ -51,6 +93,8 @@ async function main() {
   console.log(`\nAgent ${me}`);
   console.log(`  Wallet   ${inventory.base.toFixed(4)} USD₮ + ${inventory.quote.toFixed(2)} wARS` +
     `  (≈ ${(inventory.base + inventory.quote * mid).toFixed(4)} USD₮)`);
+
+  printAgent(health);
 
   console.log(`\nFeed (USD₮ per wARS)`);
   console.log(`  Textile  ${mid.toPrecision(6)}  ${now - textile.timestamp}s old`);
