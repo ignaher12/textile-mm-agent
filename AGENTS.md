@@ -101,7 +101,8 @@ Also decided: **start with wARS**. There is no competition and the "two-sided li
 
 Checked against docs.textilecredit.com on 2026-10-17. The docs answer only part of them:
 
-- **Onboarding/seating (answered):** a bot quotes nothing until Textile grants a credential **and seats it on the corridor**. "Connect alone does not put you in the fan-out." Onboarding starts by emailing **contact@textilecredit.com** (they also give testnet access).
+- **Onboarding/seating (answered):** per the filler guide (https://fx-docs.textilecredit.com/guides/how-to-become-a-filler.html), seating is **self-serve**: Settings → RFQ → Connect to Textile, click the emailed verification link (covers every corridor and chain), then Check status. The bot seats itself on its pair's corridors within a minute. Contact contact@textilecredit.com only if the panel reports a blocked maker or an unsupported pair.
+- **Limit-order taking costs native gas.** The guide says to leave "Fill users' resting limit orders" on, but Stitch can't pay gas in USD₮ and we hold 0 CELO, so keep it **off** until we hold CELO.
 - **Maker protocol (answered: not documented):** the v2 API documents only the trader side (`/v2/rfq/request`, `/submit`, …). The maker stream is only in Stitch's source. The docs only describe Stitch.
 - **Settlement (partly answered):** the taker broadcasts the swap; Textile never broadcasts. The reactor is UniswapX `LimitOrderReactor` v2.1.0, so on-chain our wallet appears as the order **swapper** (signer) in the `Fill` event, and the taker as the filler/msg.sender. Our ERC-8021 tag is not in that tx.
 - **Still open (ask the hackathon organizers, not Textile):** how judges credit a maker's volume and P&L when the taker sends the tx and our tag isn't in it; whether Stitch plus our own feed and supervisor counts as originality; whether wARS taker flow is expected.
