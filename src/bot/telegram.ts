@@ -10,6 +10,9 @@ const updatesSchema = z.object({
   ),
 });
 
+/** Long-poll length Telegram holds each getUpdates open for. */
+const POLL_SECS = 30;
+
 export interface Telegram {
   send(text: string): Promise<void>;
   /** Long-polls for messages from the configured chat until `stop()` is called. */
@@ -43,7 +46,11 @@ export function createTelegram(opts: { token: string; chatId: string; log?: (msg
     while (running) {
       try {
         abort = new AbortController();
-        const res = await fetch(api(`getUpdates?timeout=30&offset=${offset}`), { signal: abort.signal });
+        // Our own deadline on top of Telegram's 30 s: after the host sleeps, the old
+        // socket is dead and the request would otherwise hang forever.
+        const res = await fetch(api(`getUpdates?timeout=${POLL_SECS}&offset=${offset}`), {
+          signal: AbortSignal.any([abort.signal, AbortSignal.timeout((POLL_SECS + 15) * 1000)]),
+        });
         const { result } = updatesSchema.parse(await res.json());
         for (const u of result) {
           offset = u.update_id + 1;
