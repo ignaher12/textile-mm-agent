@@ -24,9 +24,10 @@ const env = loadEnv();
 const owner = privateKeyToAccount(required(env, "PRIVATE_KEY")).address;
 const client = createCeloClient(env.CELO_RPC_URL);
 
-// Stitch rejects prints older than its staleness_secs (900 in our stitch.toml),
-// and our print is as old as its oldest source, so drop sources older than that.
-const STITCH_MAX_AGE_MS = 10 * 60_000;
+// Stitch's RFQ responder drops prints older than [feed].rfq_staleness_secs
+// (180 in our stitch.toml; Stitch's default for wars-usdt is only 60). Our
+// print is as old as its oldest source, so drop sources older than 150 s.
+const STITCH_MAX_AGE_MS = 150_000;
 
 const pairs = Object.entries(STITCH_PAIRS);
 const feeds = Object.fromEntries(

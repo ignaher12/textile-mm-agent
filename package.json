@@ -17,7 +17,8 @@
     "balances": "tsx scripts/balances.ts",
     "identity": "tsx scripts/register-identity.ts",
     "feed": "tsx scripts/feed-server.ts",
-    "approve": "tsx scripts/approve-permit2.ts"
+    "approve": "tsx scripts/approve-permit2.ts",
+    "status": "tsx scripts/status.ts"
   },
   "license": "MIT",
   "dependencies": {
