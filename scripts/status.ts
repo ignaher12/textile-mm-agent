@@ -5,14 +5,13 @@
 //   npm run status                # fills from the last 24 h
 //   npm run status -- --hours 72
 import { parseArgs } from "node:util";
-import { formatUnits, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { TOKENS, createCeloClient } from "../src/chain/celo.js";
+import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv, required } from "../src/config/env.js";
 import { createHeartbeatFile, heartbeatSchema, type Heartbeat } from "../src/lifecycle/heartbeat.js";
-import { previewRfq, type Preview } from "../src/textile/rfq.js";
+import { marketSnapshot, type QuoteProbe } from "../src/textile/market.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -105,26 +104,17 @@ async function main() {
       : `  Ours     ✗ unreachable at ${args.feed} — Stitch is not quoting. Is \`npm run feed\` running?`,
   );
 
-  // A trader selling wARS hits makers' bids; a trader selling USD₮ hits their asks.
-  const sides = [
-    { label: "We buy wARS  (trader sells wARS)", sell: TOKENS.wARS, buy: TOKENS.USDT, amount: parseUnits((PROBE_USDT / mid).toFixed(0), 18), sign: -1 },
-    { label: "We sell wARS (trader sells USD₮)", sell: TOKENS.USDT, buy: TOKENS.wARS, amount: parseUnits(String(PROBE_USDT), 6), sign: 1 },
-  ];
-  console.log(`\nQuotes for a ~${PROBE_USDT} USD₮ trade, vs Textile mid`);
-  for (const side of sides) {
-    const req = { chainId: CHAIN_ID, sellToken: side.sell.address, buyToken: side.buy.address, sellAmount: side.amount };
-    const [mine, market] = await Promise.all([previewRfq({ ...req, restrictTo: [me] }), previewRfq(req)]);
-    // Distance from mid on the maker's side: below mid for bids, above for asks.
-    const show = (p: Preview | { error: string }) =>
-      "error" in p ? `— (${p.error})` : `${bps(side.sign * (p.rate / mid - 1))} ${side.sign < 0 ? "below" : "above"} mid`;
-    const capacity =
-      "error" in mine || mine.availableSellAmount === null
-        ? ""
-        : `, capacity ${Number(formatUnits(mine.availableSellAmount, side.sell.decimals)).toFixed(2)} ${side.sell.symbol}`;
-    console.log(`  ${side.label}`);
-    console.log(`    ours    ${show(mine)}${capacity}`);
-    console.log(`    best    ${show(market)}`);
-  }
+  const market = await marketSnapshot(me, mid, PROBE_USDT);
+  const show = (p: QuoteProbe, side: "below" | "above") =>
+    "error" in p ? `— (${p.error})` : `${p.bps.toFixed(1)} bps ${side} mid, depth ${p.depthUsdt.toFixed(2)} USD₮`;
+  console.log(`
+Quotes for a ~${PROBE_USDT} USD₮ trade, vs Textile mid`);
+  console.log(`  We buy wARS  (trader sells wARS)`);
+  console.log(`    ours    ${show(market.traderSellsWars.ours, "below")}`);
+  console.log(`    best    ${show(market.traderSellsWars.best, "below")}`);
+  console.log(`  We sell wARS (trader sells USD₮)`);
+  console.log(`    ours    ${show(market.traderBuysWars.ours, "above")}`);
+  console.log(`    best    ${show(market.traderBuysWars.best, "above")}`);
 
   const hours = Number(args.hours);
   const from = head - BigInt(Math.round(hours * 3600)); // Celo: ~1 s blocks

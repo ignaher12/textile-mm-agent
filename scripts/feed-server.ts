@@ -13,7 +13,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createCeloClient } from "../src/chain/celo.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv, required } from "../src/config/env.js";
-import { DEFAULT_PARAMS } from "../src/engine/params.js";
+import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
 import { createPairFeed } from "../src/feeds/pairs.js";
 import { createHeartbeatFile, type Heartbeat, type PairHealth } from "../src/lifecycle/heartbeat.js";
 import { createShutdown, installShutdownHandlers } from "../src/lifecycle/shutdown.js";
@@ -22,6 +22,11 @@ import { createRiskStore } from "../src/risk/store.js";
 import { createFeedServer } from "../src/stitch/feedServer.js";
 import { STITCH_PAIRS } from "../src/stitch/print.js";
 import { createSkewTracker } from "../src/stitch/skew.js";
+import { createPriceHistory } from "../src/supervisor/context.js";
+import { createChat } from "../src/supervisor/llm.js";
+import { buildLiveContext } from "../src/supervisor/live.js";
+import { createParamsStore } from "../src/supervisor/paramsStore.js";
+import { createSupervisor, jsonlRecorder } from "../src/supervisor/supervisor.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -52,21 +57,24 @@ const agents = Object.fromEntries(
     const store = createRiskStore(`${args.data}/risk-${slug}.json`);
     const risk = createRiskManager(DEFAULT_LIMITS, args["reset-kill"] ? undefined : store.load());
     if (args["reset-kill"]) store.save(risk.snapshot());
-    return [
-      slug,
-      {
-        feed: createPairFeed(pair, fetch, { maxAgeMs: STITCH_MAX_AGE_MS }),
-        skew: createSkewTracker({ params: () => DEFAULT_PARAMS, readInventory: () => readInventory(client, owner, pair) }),
-        risk,
-        store,
-        // Fail closed until the first evaluation.
-        decision: { paused: true, reasons: ["starting up"], killed: null, drawdown: 0 } as RiskDecision,
-        health: {
-          quoting: false, reasons: ["starting up"], ref: null, published: null, skewBps: 0,
-          inventory: null, drawdown: 0, killed: null, lastRefresh: 0,
-        } as PairHealth,
-      },
-    ];
+    const paramsStore = createParamsStore(`${args.data}/params-${slug}.json`);
+    const agent = {
+      // Set by the supervisor; persisted so a restart keeps its last decision.
+      params: paramsStore.load() ?? DEFAULT_PARAMS,
+      paramsStore,
+      history: createPriceHistory(),
+      feed: createPairFeed(pair, fetch, { maxAgeMs: STITCH_MAX_AGE_MS }),
+      skew: createSkewTracker({ params: (): QuoteParams => agent.params, readInventory: () => readInventory(client, owner, pair) }),
+      risk,
+      store,
+      // Fail closed until the first evaluation.
+      decision: { paused: true, reasons: ["starting up"], killed: null, drawdown: 0 } as RiskDecision,
+      health: {
+        quoting: false, reasons: ["starting up"], ref: null, published: null, skewBps: 0,
+        inventory: null, drawdown: 0, killed: null, lastRefresh: 0,
+      } as PairHealth,
+    };
+    return [slug, agent];
   }),
 );
 
@@ -98,6 +106,7 @@ const { server, refresh, stop } = createFeedServer({
       return console.log(`${time} ${slug} NO PRICE: ${ref.reason}`);
     }
 
+    a.history.add(Date.now(), ref.price);
     const s = await a.skew.update(ref.price);
     const textile = ref.used.find((q) => q.source.startsWith("textile:"));
     const textileOutlier = ref.rejected.some((r) => r.source.startsWith("textile:") && r.reason.startsWith("outlier"));
@@ -142,6 +151,54 @@ const { server, refresh, stop } = createFeedServer({
   },
 });
 
+// --- LLM supervisor: every 10 min on wars-usdt, off without an API key. -----
+const SUPERVISOR_EVERY_MS = 10 * 60_000;
+// Must match buy_offset_bps / sell_offset_bps in stitch.toml.
+const STITCH_SPREAD_BPS_PER_SIDE = 20;
+const supervised = agents["wars-usdt"]!;
+const recentDecisions: { time: string; reason: string }[] = [];
+let supervisorTimer: NodeJS.Timeout | undefined;
+
+if (env.LLM_API_KEY) {
+  const supervisor = createSupervisor({
+    chat: createChat({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL }),
+    getParams: () => supervised.params,
+    setParams(p) {
+      supervised.params = p;
+      supervised.paramsStore.save(p);
+    },
+    record: jsonlRecorder(`${args.data}/decisions.jsonl`),
+  });
+  const runSupervisor = async () => {
+    const inventory = supervised.skew.get().inventory;
+    const refPrice = supervised.health.ref;
+    if (halted || !inventory || refPrice === null) return;
+    const context = await buildLiveContext({
+      me: owner, client, refPrice, history: supervised.history, inventory, risk: supervised.decision,
+      params: supervised.params, stitchSpreadBpsPerSide: STITCH_SPREAD_BPS_PER_SIDE, recentDecisions: [...recentDecisions],
+    });
+    const r = await supervisor.run(context);
+    const time = new Date().toISOString().slice(11, 19);
+    if (r.decision) {
+      recentDecisions.push({ time: r.time, reason: r.decision.reason });
+      if (recentDecisions.length > 3) recentDecisions.shift();
+      const p = r.after;
+      console.log(
+        `${time} 🧠 supervisor: share ${p.targetBaseShare} skew ${(p.maxSkew * 1e4).toFixed(1)} bps band ${p.inventoryBand}` +
+          `${p.paused ? " PAUSED" : ""} — ${r.decision.reason}`,
+      );
+    } else {
+      console.log(`${time} 🧠 supervisor failed, keeping params: ${r.error}`);
+    }
+  };
+  // First run after a minute of price history, then every 10 min.
+  setTimeout(() => void runSupervisor().catch((e) => console.error("supervisor:", e)), 60_000);
+  supervisorTimer = setInterval(() => void runSupervisor().catch((e) => console.error("supervisor:", e)), SUPERVISOR_EVERY_MS);
+  console.log(`🧠 supervisor on (${env.LLM_MODEL}), every ${SUPERVISOR_EVERY_MS / 60_000} min`);
+} else {
+  console.log("🧠 supervisor off: set LLM_API_KEY in .env to enable it");
+}
+
 const { shutdown } = createShutdown({
   steps: [
     {
@@ -149,6 +206,7 @@ const { shutdown } = createShutdown({
       timeoutMs: GO_DARK_GRACE_MS + 1_000,
       async run(reason) {
         halted = true;
+        clearInterval(supervisorTimer);
         heartbeat.state = "stopping";
         heartbeat.stopReason = reason;
         beat();

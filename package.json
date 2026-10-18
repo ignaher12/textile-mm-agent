@@ -18,7 +18,9 @@
     "identity": "tsx scripts/register-identity.ts",
     "feed": "tsx scripts/feed-server.ts",
     "approve": "tsx scripts/approve-permit2.ts",
-    "status": "tsx scripts/status.ts"
+    "status": "tsx scripts/status.ts",
+    "supervise": "tsx scripts/supervise.ts",
+    "start": "tsx scripts/feed-server.ts"
   },
   "license": "MIT",
   "dependencies": {

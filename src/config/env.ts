@@ -18,6 +18,12 @@ const envSchema = z.object({
   ATTRIBUTION_TAG: optional(
     z.string().regex(/^[a-z0-9_]{1,32}$/, "must be 1-32 chars of [a-z0-9_]"),
   ),
+  // LLM supervisor (any OpenAI-compatible API). Without a key it stays off.
+  LLM_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://integrate.api.nvidia.com/v1")),
+  LLM_API_KEY: optional(z.string()),
+  LLM_MODEL: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("meta/llama-3.3-70b-instruct")),
+  TELEGRAM_BOT_TOKEN: optional(z.string()),
+  TELEGRAM_CHAT_ID: optional(z.string()),
 });
 
 export type Env = z.infer<typeof envSchema>;
