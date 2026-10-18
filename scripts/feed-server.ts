@@ -10,13 +10,13 @@
 // GET /health returns the same heartbeat written to data/heartbeat.json.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { privateKeyToAccount } from "viem/accounts";
+import { agentAddress } from "../src/chain/wallet.js";
 import { formatStatus, handleCommand } from "../src/bot/commands.js";
 import { createTelegram } from "../src/bot/telegram.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
 import { readInventory } from "../src/chain/inventory.js";
-import { loadEnv, required } from "../src/config/env.js";
+import { loadEnv } from "../src/config/env.js";
 import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
 import { createPairFeed } from "../src/feeds/pairs.js";
 import { createHeartbeatFile, type Heartbeat, type PairHealth } from "../src/lifecycle/heartbeat.js";
@@ -45,7 +45,7 @@ const { values: args } = parseArgs({
 const port = Number(args.port);
 
 const env = loadEnv();
-const owner = privateKeyToAccount(required(env, "PRIVATE_KEY")).address;
+const owner = agentAddress(env);
 const client = createCeloClient(env.CELO_RPC_URL);
 
 // Stitch's RFQ responder drops prints older than [feed].rfq_staleness_secs

@@ -7,10 +7,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { privateKeyToAccount } from "viem/accounts";
+import { agentAddress } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
-import { loadEnv, required } from "../src/config/env.js";
+import { loadEnv } from "../src/config/env.js";
 import { createMetricsLog } from "../src/lifecycle/metrics.js";
 import { summarize, type Evidence } from "../src/report/evidence.js";
 import type { DecisionRecord } from "../src/supervisor/supervisor.js";
@@ -31,7 +31,7 @@ const AGENT_TXS = [
 ];
 
 const env = loadEnv();
-const me = privateKeyToAccount(required(env, "PRIVATE_KEY")).address;
+const me = agentAddress(env);
 const client = createCeloClient(env.CELO_RPC_URL);
 
 const metrics = createMetricsLog(`${args.data}/metrics.jsonl`).read();

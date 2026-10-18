@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { privateKeyToAccount } from "viem/accounts";
+import { agentAddress } from "../src/chain/wallet.js";
 import { parseEnv, required } from "../src/config/env.js";
 
 const KEY = `0x${"ab".repeat(32)}`;
@@ -25,5 +27,26 @@ describe("parseEnv", () => {
 
   it("required() throws for missing values", () => {
     expect(() => required(parseEnv({}), "PRIVATE_KEY")).toThrow("PRIVATE_KEY is not set");
+  });
+});
+
+describe("agentAddress", () => {
+  const addressOfKey = privateKeyToAccount(KEY as `0x${string}`).address;
+
+  it("works from AGENT_ADDRESS alone, without a key", () => {
+    expect(agentAddress(parseEnv({ AGENT_ADDRESS: addressOfKey }))).toBe(addressOfKey);
+  });
+
+  it("falls back to the key's address", () => {
+    expect(agentAddress(parseEnv({ PRIVATE_KEY: KEY }))).toBe(addressOfKey);
+  });
+
+  it("refuses an AGENT_ADDRESS that doesn't match the key", () => {
+    const other = `0x${"cd".repeat(20)}`;
+    expect(() => agentAddress(parseEnv({ PRIVATE_KEY: KEY, AGENT_ADDRESS: other }))).toThrow(/does not match/);
+  });
+
+  it("throws when neither is set", () => {
+    expect(() => agentAddress(parseEnv({}))).toThrow(/AGENT_ADDRESS/);
   });
 });

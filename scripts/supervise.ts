@@ -3,10 +3,10 @@
 // the prompt. Without LLM_API_KEY it prints the context only.
 //
 //   npm run supervise
-import { privateKeyToAccount } from "viem/accounts";
+import { agentAddress } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { readInventory } from "../src/chain/inventory.js";
-import { loadEnv, required } from "../src/config/env.js";
+import { loadEnv } from "../src/config/env.js";
 import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
 import { computeQuotes } from "../src/engine/quote.js";
 import { createPairFeed } from "../src/feeds/pairs.js";
@@ -19,7 +19,7 @@ import { createSupervisor } from "../src/supervisor/supervisor.js";
 
 async function main() {
   const env = loadEnv();
-  const me = privateKeyToAccount(required(env, "PRIVATE_KEY")).address;
+  const me = agentAddress(env);
   const client = createCeloClient(env.CELO_RPC_URL);
 
   const ref = await createPairFeed("USDT/ARS").get();

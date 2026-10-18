@@ -5,11 +5,11 @@
 //   npm run status                # fills from the last 24 h
 //   npm run status -- --hours 72
 import { parseArgs } from "node:util";
-import { privateKeyToAccount } from "viem/accounts";
+import { agentAddress } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
 import { readInventory } from "../src/chain/inventory.js";
-import { loadEnv, required } from "../src/config/env.js";
+import { loadEnv } from "../src/config/env.js";
 import { createHeartbeatFile, heartbeatSchema, type Heartbeat } from "../src/lifecycle/heartbeat.js";
 import { marketSnapshot, type QuoteProbe } from "../src/textile/market.js";
 
@@ -25,7 +25,7 @@ const CHAIN_ID = 42220;
 const PROBE_USDT = 2; // trade size used to probe quotes, in USD₮
 
 const env = loadEnv();
-const me = privateKeyToAccount(required(env, "PRIVATE_KEY")).address;
+const me = agentAddress(env);
 const client = createCeloClient(env.CELO_RPC_URL);
 
 const bps = (x: number) => `${(x * 1e4).toFixed(1)} bps`;

@@ -14,6 +14,13 @@ const envSchema = z.object({
       .regex(/^0x[0-9a-fA-F]{64}$/, "must be a 0x-prefixed 32-byte hex key")
       .transform((v) => v as `0x${string}`),
   ),
+  /** Public address of the agent wallet. Lets read-only processes (the feed, status) run without PRIVATE_KEY. */
+  AGENT_ADDRESS: optional(
+    z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x-prefixed 20-byte address")
+      .transform((v) => v as `0x${string}`),
+  ),
   CELO_RPC_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://forno.celo.org")),
   ATTRIBUTION_TAG: optional(
     z.string().regex(/^[a-z0-9_]{1,32}$/, "must be 1-32 chars of [a-z0-9_]"),
