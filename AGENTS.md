@@ -134,7 +134,10 @@ Checked against docs.textilecredit.com on 2026-10-17. The docs answer only part 
 - TypeScript (strict, NodeNext), Node 24, `viem`, `zod`, `vitest`, `tsx`. TypeScript 7.
 - LLM: **NVIDIA Build** (free credits), via the `openai` SDK with `LLM_BASE_URL=https://integrate.api.nvidia.com/v1`. Provider-agnostic through env vars.
 - The LLM is a **supervisor** that sets parameters every ~10 min. It is never in the fast loop, and its output is validated with zod and clamped by `clampParams`.
-- Hosting: **local PC** for now. Oracle Cloud Always Free is the option for 24/7 in the final week. No serverless.
+- Hosting: **local PC** (sleep on AC disabled 2026-10-18; it was 2 h). No serverless.
+  - **Oracle Cloud VM ready but unused** (decided 2026-10-18: the user prefers the key stays on the PC for now; use the VM for a longer run). `ubuntu@144.22.146.223`, SSH key `~/.ssh/oracle_textile`, E2.1.Micro (1 GB RAM + 2 GB swap), Ubuntu 20.04, Node 24, Docker. Hardened: key-only SSH, no root login, firewall allows only 22, rpcbind off, unattended upgrades.
+  - Repo at `~/textile-mm-agent` (`git pull` before use). systemd unit `textile-agent` (not enabled). `~/start-stitch.sh` runs `ghcr.io/textile-protocol/textile-stitch` (the Linux binary needs glibc ≥ 2.32, the VM has 2.31) with `~/stitch` (uid 1000, mode 700) mounted as its run dir.
+  - **To migrate:** stop Stitch and `npm start` on the PC first (never two signers on one wallet). Then copy `stitch.toml`, `stitch.key` and `rfq-api.key` into `~/stitch` (sudo, chown 1000), plus `data/` and a `.env` **without** `PRIVATE_KEY` (set `AGENT_ADDRESS`: the agent only reads the chain, so the key lives only in Stitch's file). Then `sudo systemctl enable --now textile-agent` and `~/start-stitch.sh`. The user should enable MFA on the Oracle account first.
 - **OFF function** (user request): a graceful `shutdown()` that stops the loops, cancels everything, snapshots and notifies Telegram. Triggers are SIGINT/SIGTERM/SIGHUP, `/off`, the kill switch and unhandled errors. Pair it with cancel-on-startup and a heartbeat. See the README.
 - Planned: SQLite storage, grammY Telegram bot (`/status /pause /resume /off /why`).
 - Celo reference: the Celopedia skill in `.agents/skills/` (symlinked into `.claude/skills/`). Notes: USD₮ has 6 decimals and needs the fee adapter `0x0e2a…6f72`, and wFiat tokens have 18 decimals.
@@ -155,4 +158,4 @@ Done as of 2026-10-18: live RFQ quoting via Stitch, skewed feed, risk manager + 
 2. **User:** ask the hackathon organizers how maker volume/P&L is credited when the taker broadcasts, whether the tag on our own txs suffices, whether Stitch as execution is fine, and whether judging is absolute or relative to capital.
 3. Optional, needs a mainnet OK: buy ~2.4 USD₮ of wARS as a taker on Textile (`/v2/rfq/request` + takerProof, tagged tx), so both sides are quoted.
 4. Commit `reports/EVIDENCE.md` periodically (it's generated, not hand-written), and record the demo video.
-5. Keep the agent running 24/7 through the deadline (Oracle Cloud Always Free, or the local PC with sleep disabled).
+5. Keep the agent running 24/7 through the deadline: the local PC for now, the prepared Oracle VM for a longer run (see Hosting).
