@@ -43,10 +43,10 @@ An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet*
 - `scripts/balances.ts`: `npm run balances`
 - `scripts/register-identity.ts`: ERC-8004 registration, dry run by default
 - `src/feeds/sources/textile.ts`: Textile's own price endpoint as a 4th source (inverted to local currency per USD₮)
-- `scripts/approve-permit2.ts`: `npm run approve -- --token USDT|wARS|wBRL [--send]`. Max Permit2 allowance from our wallet (USD₮ gas, tagged). **USD₮ approved** 2026-10-17 ([tx](https://celoscan.io/tx/0xb0d87848090f3149f2c597dee02fc87ae74778c1e0349da9e9ee2ea82341169d)).
+- `scripts/approve-permit2.ts`: `npm run approve -- --token USDT|wARS|wBRL [--send]`. Max Permit2 allowance from our wallet (USD₮ gas, tagged). **USD₮ approved** 2026-10-17 ([tx](https://celoscan.io/tx/0xb0d87848090f3149f2c597dee02fc87ae74778c1e0349da9e9ee2ea82341169d)). **wARS approved** too ([tx](https://celoscan.io/tx/0x2493af79550153337f6dfeed3a41167c0abba474918d747cfc47ad0611dba9fa)), because Stitch's live-start preflight refuses to run while any *enabled* side is unapproved, and the panel wizard always enables both sides.
 - `src/stitch/`: HTTP feed server for Stitch (`npm run feed`, `GET /price?pair=wars-usdt|wbrl-usdt`). It publishes `1 / (ref × (1 − skew))` in Stitch's format, uses `degraded: true` for pause, and answers 503 when there is no price. Skew is still a stub (0), not yet wired to live inventory.
 
-**Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.937 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
+**Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.934 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
 
 **ERC-8004 identity: agentId 9972**, registered 2026-10-17 from the agent wallet (cost ≈ 0.011 USD₮). The calldata carries the attribution tag and the ERC-8021 suffix.
 
@@ -87,6 +87,7 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
 - **RFQ has no inventory lean.** Stitch's `lean_*` options only apply to the ladder and the limit-order taker, so publishing a skewed price is still our edge. RFQ capacity is `min(balance, Permit2 allowance)`; `*_min_slice_debt` is ladder sizing.
 - Onboarding: `stitch connect` signs a registration and writes `rfq-api.key` (the user must do this, it may ask for email). If Textile hasn't "seated" the corridor for us it says so: ask Textile.
 - **Stitch has no Celo fee abstraction** (no `feeCurrency`), so its `stitch approve` needs native CELO. We hold 0 CELO, so do the Permit2 approvals **with our own wallet** (USD₮ gas plus the attribution tag) instead.
+- **Panel wizard's Fund step asks for ~$0.06 of CELO** even with all approvals done. That is a wizard gate only (the start handler doesn't check gas, and RFQ quoting is gasless), so use its Skip link.
 - Windows: `irm https://github.com/textile-protocol/textile-stitch/releases/latest/download/stitch-installer.ps1 | iex`, or the desktop app (panel on `127.0.0.1:8420`).
 
 ## Decision: execution via Stitch (option A)
@@ -134,6 +135,6 @@ Checked against docs.textilecredit.com on 2026-10-17. The docs answer only part 
 
 1. ~~ERC-8004 registration~~ done (agentId 9972).
 2. ~~Feed server for Stitch~~ done. USD₮ Permit2 done. Stitch v0.1.321 unpacked in `C:\Users\ignah\Stitch`. Next: user sets up the desktop app and emails Textile for seating, lower `PARAM_BOUNDS.spread` to bps, wire live inventory into the skew.
-3. Acquire wARS **outside Textile** (Ripio ramp or another Celo DEX): the side of the Textile book that would sell us wARS is empty. Without wARS the agent can't quote the empty bid side. Budget is tiny: 4.937 USD₮ so far.
+3. Acquire wARS **outside Textile** (Ripio ramp or another Celo DEX): the side of the Textile book that would sell us wARS is empty. Without wARS the agent can't quote the empty bid side. Budget is tiny: 4.934 USD₮ so far.
 4. Update the README architecture for the RFQ/filler model, and recalibrate the simulator to bps spreads.
 5. Week 2–3: risk manager, OFF function, supervisor (NVIDIA Build), Telegram bot, then continuous mainnet operation for at least the final week.
