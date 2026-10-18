@@ -1,0 +1,121 @@
+# Agent context: Textile MM Agent
+
+Handoff notes for coding agents working on this repo. Read this first, then `README.md` (architecture and design).
+
+Last updated: 2026-10-17.
+
+## The user
+
+- Speaks Spanish (Argentina). **Explain things in Spanish; write code, comments, commits and the README in English.**
+- Knows how to program, but is new to crypto, DeFi and market making. Explain domain concepts briefly when they come up.
+- On Windows 11. Use the Write/Edit tools for files: multi-line bash heredocs have failed in this environment.
+
+## The project
+
+An autonomous, LLM-supervised **market maker for Textile FX** on **Celo mainnet**, quoting wARS/USD₮ (and later wBRL/USD₮).
+
+- Hackathon: [Agents on Open Rails](https://www.loops.house/agents-on-open-rails) (Celo)
+- Track: **Stable Agents: Open Corridors → Textile FX** subtrack ($750 first, $250 second)
+- Judged on: **strategy P&L, volume quoted and filled, originality**
+- **Deadline: Mon 9 Nov 2026, 09:00 GMT (06:00 ART).** Winners announced Fri 13 Nov.
+- Repo: https://github.com/ignaher12/textile-mm-agent (public, required by the rules)
+
+### Hackathon hard requirements
+
+| Requirement | Status |
+|---|---|
+| Enrolled on Loops House, attribution tag obtained | ✅ tag in `.env` (`ATTRIBUTION_TAG`) |
+| ERC-8021 attribution tag on every transaction | ✅ enforced by `createAgentWallet()` in `src/chain/wallet.ts` |
+| ERC-8004 identity registered | ⏳ dry run OK, **awaiting the user's confirmation** to send |
+| Transactions on Celo mainnet (testnet doesn't count) | ⏳ none yet |
+| Public GitHub repo | ✅ |
+| Code written during the hackathon | ✅ |
+
+## Current state
+
+**Done** (36 tests passing, `npm test`):
+
+- `src/feeds/`: reference price from CoinGecko, CriptoYa and DolarAPI, with staleness and outlier filtering and median aggregation. `npm run price`
+- `src/engine/`: pure quoting engine (bid/ask around ref, inventory skew capped at spread/4) with clamped parameters
+- `sim/`: backtester on CoinGecko history and synthetic scenarios. `npm run sim -- --sweep`
+- `src/chain/`: Celo token addresses, public client, attribution-tagged wallet client
+- `scripts/new-wallet.ts`: agent wallet generator (key goes to `.env`, never printed; refuses to overwrite)
+- `scripts/balances.ts`: `npm run balances`
+- `scripts/register-identity.ts`: ERC-8004 registration, dry run by default
+
+**Agent wallet:** `0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3`. It holds **4.95 USD₮** and 0 CELO, so gas is paid in USD₮ via fee abstraction (`feeCurrency: USDT_FEE_CURRENCY`). The private key lives only in `.env`, which is git-ignored.
+
+**Pending ERC-8004 registration.** The dry run succeeded (predicted agentId 9972, cost ≈ $0.01). It is irreversible, so **confirm with the user before running**:
+
+```bash
+npm run identity -- --repo https://github.com/ignaher12/textile-mm-agent --send
+```
+
+## Key findings about Textile (they change the README's original design)
+
+Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecredit.com).
+
+- **Textile is RFQ-based, not a resting order book.** A trader requests a quote, and online makers ("**fillers**") have ~1 s to answer with a **signed EIP-712 order**, exclusive to that trader and valid ≤ 60 s. The **trader** broadcasts the settlement transaction and pays gas.
+  - Quoting is **off-chain and gasless** for the filler. Only one-time Permit2 approvals cost gas.
+  - Stale-order risk is small, since quotes expire within 60 s.
+  - Taker fee is 1 bps on Celo. Makers pay no fee.
+- Textile also has gasless trader **limit orders** (5 min to 1 year expiry; cancelling costs gas). Fillers can optionally take them.
+- **The maker-side protocol is not publicly documented.** The only implementation is **Stitch**, Textile's official filler bot: https://github.com/textile-protocol/textile-stitch (Rust, AGPL-3.0).
+  - Stitch reads an external price feed URL returning `{ "price": ..., "timestamp": <unix seconds> }`.
+  - Spreads are in bps in `stitch.toml`. Config is read at startup, so spread changes require a restart.
+  - It has no inventory skew ("no inventory lean").
+  - Onboarding: `stitch approve`, then "Connect to Textile" (signs with the wallet plus an email verification).
+- **Celo contracts** (address book):
+  - LimitOrderReactor `0xa9AA0a64769cBed4d3B1Ceb4Df01CdE915C235b3`
+  - Fee controller `0x7b005466F905DD882A959888154587fA76cd3Ea7`
+  - Permit2 `0x000000000022D473030F116dDEE9F6B43aC78BA3`
+  - OperatorVaultFactory `0x88104decA449C797632AfdcA77A3140b24cD844A`
+  - VaultOrderExecutor `0x01b006d5c687bde182aa36F542f1f014144742e2`
+- **Live market** (public feed `https://api.textilecredit.com/tickers`, checked 2026-10-17):
+  - **USD₮/wARS**: bid **0** (empty), ask 1616.53, **24h volume 0**. Nobody makes a two-sided wARS market.
+  - **USD₮/wBRL**: bid 5.0787, ask 5.0812 (~0.05% spread), 24h volume ~600 USD₮. One competitive maker already exists.
+- **The simulator is miscalibrated.** Its default 2% spread and taker-flow model are far from Textile reality, where spreads are in basis points and wARS flow is near zero. Use it only for relative comparisons until it is recalibrated.
+
+## Decision pending with the user
+
+How to execute on Textile:
+
+- **Option A (recommended): Stitch as the execution layer, with our agent on top.** Our price feed becomes Stitch's feed URL. We inject inventory skew and supervisor adjustments through the published price, and the LLM supervisor tunes spreads (config plus restart). This is the fastest path to mainnet volume.
+- **Option B: our own TypeScript filler.** Requires reverse-engineering the maker protocol from Stitch's source. More control, but riskier with ~3 weeks left.
+
+Also recommended: **start with wARS**. There is no competition and the "two-sided liquidity for the Argentine peso" story is strong.
+
+## Open questions (for the hackathon Telegram / contact@textilecredit.com)
+
+It's unknown whether the user has sent these yet.
+
+1. Is Stitch plus our own feed and supervisor acceptable, or is a custom filler expected?
+2. Is the maker-side RFQ protocol documented anywhere besides the Stitch source?
+3. Traders broadcast the settlement tx, so how is filler P&L and volume credited for judging, and where does a filler's attribution tag go?
+4. Is taker flow on wARS expected during the hackathon?
+
+## Stack and decisions already made
+
+- TypeScript (strict, NodeNext), Node 24, `viem`, `zod`, `vitest`, `tsx`. TypeScript 7.
+- LLM: **NVIDIA Build** (free credits), via the `openai` SDK with `LLM_BASE_URL=https://integrate.api.nvidia.com/v1`. Provider-agnostic through env vars.
+- The LLM is a **supervisor** that sets parameters every ~10 min. It is never in the fast loop, and its output is validated with zod and clamped by `clampParams`.
+- Hosting: **local PC** for now. Oracle Cloud Always Free is the option for 24/7 in the final week. No serverless.
+- **OFF function** (user request): a graceful `shutdown()` that stops the loops, cancels everything, snapshots and notifies Telegram. Triggers are SIGINT/SIGTERM/SIGHUP, `/off`, the kill switch and unhandled errors. Pair it with cancel-on-startup and a heartbeat. See the README.
+- Planned: SQLite storage, grammY Telegram bot (`/status /pause /resume /off /why`).
+- Celo reference: the Celopedia skill in `.agents/skills/` (symlinked into `.claude/skills/`). Notes: USD₮ has 6 decimals and needs the fee adapter `0x0e2a…6f72`, and wFiat tokens have 18 decimals.
+
+## Working rules
+
+- **Never print, log or commit the private key.** `.env` is git-ignored. Don't paste secrets in chat.
+- **Confirm with the user before any mainnet transaction**, especially irreversible ones.
+- Run `npx tsc --noEmit` and `npm test` before committing.
+- End commit messages with: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (when the agent is Claude).
+- On Windows, `gh` lives at `"/c/Program Files/GitHub CLI/gh.exe"` (logged in as `ignaher12`, git credential helper configured).
+
+## Suggested next steps
+
+1. Get the user's go-ahead and send the ERC-8004 registration (`--send`), then record the agentId here and in the README.
+2. Settle option A vs B with the user. If A: install Stitch, read its config and README, and turn `src/feeds` into an HTTP feed server for Stitch (Unix-seconds timestamps).
+3. Acquire a small amount of wARS (Textile swap or Ripio ramp) so both sides can be quoted. Budget is tiny: 4.95 USD₮ so far.
+4. Update the README architecture for the RFQ/filler model, and recalibrate the simulator to bps spreads.
+5. Week 2–3: risk manager, OFF function, supervisor (NVIDIA Build), Telegram bot, then continuous mainnet operation for at least the final week.
