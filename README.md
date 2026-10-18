@@ -1,30 +1,51 @@
 # Textile MM Agent
 
-An autonomous **market-making agent** for [Textile FX](https://app.textilecredit.com) on **Celo mainnet**, quoting Latin American stablecoin pairs (wARS/USD₮, wBRL/USD₮).
+An autonomous, **LLM-supervised market maker** (a *filler*) for [Textile FX](https://app.textilecredit.com) on **Celo mainnet**, quoting the Argentine peso corridor **wARS/USD₮**.
 
 Built for Celo's [Agents on Open Rails](https://www.loops.house/agents-on-open-rails) hackathon. Track: **Stable Agents: Open Corridors**, subtrack **Textile FX**.
 
-> Status: 🚧 week 1. The price feed, quoting engine and simulator are working. On-chain execution is next.
+> **Status: live on Celo mainnet** since 2026-10-18 as Textile maker `stitch-42220-78d8e34a`. ERC-8004 identity **agentId 9972**. Agent wallet [`0x78D8…dce3`](https://celoscan.io/address/0x78D8e34A3b47e0dBAc0930e3F58f3FC623bEdce3).
 
 ---
 
 ## Contents
 
-- [Quick start](#quick-start)
 - [What it does](#what-it-does)
-- [Concepts: market making and the spread](#concepts-market-making-and-the-spread)
-- [Why the LLM doesn't trade directly](#why-the-llm-doesnt-trade-directly)
+- [Quick start](#quick-start)
+- [How Textile works (and why it shaped the design)](#how-textile-works-and-why-it-shaped-the-design)
 - [Architecture](#architecture)
 - [Modules](#modules)
+- [The wARS corridor: what the data says](#the-wars-corridor-what-the-data-says)
+- [Concepts: market making and the spread](#concepts-market-making-and-the-spread)
+- [Why the LLM doesn't trade directly](#why-the-llm-doesnt-trade-directly)
 - [Measuring P&L](#measuring-pl)
+- [Running it](#running-it)
 - [Simulator](#simulator)
 - [Stack](#stack)
-- [Hosting and shutdown](#hosting-and-shutdown)
 - [Project layout](#project-layout)
 - [Hackathon requirements](#hackathon-requirements)
 - [Roadmap](#roadmap)
-- [Open questions](#open-questions)
 - [Resources](#resources)
+
+---
+
+## What it does
+
+The agent answers Textile's requests for quote (RFQs) on wARS/USD₮ with firm, signed prices, and earns the spread when a trader takes them. Around that execution core it adds the parts a real desk needs:
+
+- **Its own reference price**: a median of 4 independent sources with staleness and outlier filters, not a single oracle.
+- **Inventory skew**: the published price shifts with the agent's live on-chain inventory, so the side that rebalances it gets more aggressive. Textile's own bot (Stitch) has no inventory lean on RFQ.
+- **A risk manager with a kill switch**: it pauses on price jumps or a divergence from Textile's price, and latches a persisted kill switch on drawdown.
+- **An LLM supervisor**, the "desk head": every 10 minutes it reviews the market and sets the inventory policy, and writes down why.
+- **Operations**: a graceful OFF function, a heartbeat, a status command, and a Telegram bot for alerts and remote control.
+
+The subtrack is judged on three criteria:
+
+| Criterion | How we address it |
+|---|---|
+| **Strategy P&L** | Spread capture, inventory skew, and pausing in disorderly markets (risk manager + supervisor) |
+| **Volume quoted and filled** | Always-on RFQ quoting on Textile mainnet. Every fill is detected on-chain and reported |
+| **Originality** | An LLM desk head with an auditable decision log, an inventory-aware price feed, and data-driven analysis of the wARS corridor |
 
 ---
 
@@ -34,229 +55,212 @@ Requires Node 24+.
 
 ```bash
 npm install
-npm test               # unit tests
+npm test               # 73 unit tests
 npm run price          # live reference prices for USD₮/ARS and USD₮/BRL
-npm run sim            # backtest on the last 30 days of real wARS prices
-npm run sim -- --sweep # compare spreads
-npm run sim -- --data devaluation --sweep
-npm run feed           # price feed server for Stitch on 127.0.0.1:8787
+npm run status         # live agent: process, wallet, feed, our quotes vs the market, fills
+npm run supervise      # one supervisor decision on live data, not applied
 ```
 
-Wallet setup (Celo mainnet):
+Running the agent itself (see [Running it](#running-it)):
 
 ```bash
-cp .env.example .env   # then paste your ATTRIBUTION_TAG
-npm run wallet:new     # generates the agent wallet; key goes to .env, never printed
-npm run balances       # CELO / USD₮ / wARS / wBRL balances + attribution tag check
-```
-
-Every transaction goes through `createAgentWallet()` (`src/chain/wallet.ts`), which applies `withAttribution()` from `@celo/attribution-tags`, so no transaction can go out untagged.
-
-Example `npm run price` output:
-
-```
-USDT/ARS
-  ✓ coingecko:argentine-peso      1614.8045  (17s old)
-  ✓ criptoya:usdt/ars             1616.5775  (22s old)
-  ✗ dolarapi:cripto               stale (4127s old)
-  → reference: 1615.6910
+npm start              # price feed + skew + risk manager + supervisor + Telegram bot
 ```
 
 ---
 
-## What it does
+## How Textile works (and why it shaped the design)
 
-The agent works like an **on-chain exchange house**. It rests buy orders below and sell orders above the market reference price on Textile, and earns the difference (the *spread*) when other participants take them.
+The original plan assumed an on-chain order book with resting orders. Textile turned out to be **RFQ-based** ([docs](https://fx-docs.textilecredit.com)):
 
-An **LLM supervisor** tunes the strategy (spread, size, pause) based on market conditions and records its reasoning for every decision.
+1. A trader asks for a quote for an **exact size**.
+2. Online makers ("fillers") get about a second to answer with a **signed EIP-712 order** (UniswapX), exclusive to that trader and valid for ~60 s.
+3. The trader gets the best quote and **broadcasts the settlement transaction**, paying gas and a 1 bps taker fee. Makers pay nothing.
+4. A quote must cover the **whole size**. There are no partial fills.
 
-The subtrack is judged on three criteria, and the design targets each one:
+What this means for a maker:
 
-| Criterion | How we address it |
-|---|---|
-| **Strategy P&L** | Spread capture, inventory control, and pausing during volatility |
-| **Volume quoted and filled** | Small, frequent orders on both sides of the book |
-| **Originality** | An LLM supervisor with explainable decisions, focused on LatAm currencies |
+- **Quoting is gasless and off-chain.** Only the one-time Permit2 approvals cost gas.
+- **Nothing rests on-chain**, so there is nothing to cancel on a crash. Quotes expire in seconds.
+- **Competition is on price and capacity.** The best quote that can cover the full size wins.
 
----
+The maker-side protocol isn't publicly documented. Its only implementation is **Stitch**, Textile's open-source filler bot (Rust, AGPL). So the agent uses **Stitch as its execution layer** and does everything else itself. It feeds Stitch a price that already carries the agent's inventory skew and risk state:
 
-## Concepts: market making and the spread
-
-**Example:** the "real" dollar is at 1,600 ARS. The agent rests:
-
-| Order | Price | Who takes it |
-|---|---|---|
-| **Bid** (buy USD₮) | 1,584 | Someone who needs pesos and sells USD₮ |
-| **Ask** (sell USD₮) | 1,616 | Someone who needs dollars |
-
-If both fill, the agent bought 1 USD₮ at 1,584 and sold it at 1,616. It earned **32 ARS without betting on the price direction**.
-
-### Directional trading vs. market making
-
-| | Directional trading | Market making |
-|---|---|---|
-| How it earns | Predicting price direction | Capturing the spread |
-| Orders | One side | Both sides |
-| Main risk | Being wrong on direction | Inventory / adverse selection |
-| Volume | Low | High |
-
-### The real risk: inventory and adverse selection
-
-If the dollar jumps from 1,600 to 1,750, everyone buys the agent's USD₮ at 1,616, and the agent is left holding pesos that are now worth less. Mitigations:
-
-1. **Refresh the reference price** often and move orders when the market moves.
-2. **Inventory skew**: when the agent holds too much of one currency, it shifts its prices to offload it.
-3. **Widen the spread or pause** during volatility (a supervisor decision).
-
-As a complement, if Textile drifts far from the reference (e.g. 1,550 vs 1,600), the agent can take liquidity directly (**arbitrage**).
-
----
-
-## Why the LLM doesn't trade directly
-
-An LLM takes seconds to respond, costs money per call, and is non-deterministic. So it **stays out of the fast order loop**. The design has two layers:
-
-- **Quoting engine (deterministic code)**: runs every block and computes, places and cancels orders. Fast and predictable.
-- **Supervisor (LLM)**: runs every ~10 minutes or on an alert. It acts as the "desk head": it tunes parameters but never trades.
-
-The context makes this design work:
-
-- Celo has ~1 second blocks, so this is not a microsecond game.
-- Textile is a young market with little bot competition. The main risk is a lack of counterparties, not latency.
-- wARS moves over minutes or hours outside of one-off events, which are exactly what the supervisor watches for.
-
-If the LLM fails or times out, the engine keeps running on the last valid parameters. **The LLM is never on the critical path.**
+> Stitch quotes `print × (1 ± spread)`. We publish `print = ref × (1 − skew)`, which lands Stitch's bid and ask exactly on the quoting engine's. To stop quoting, we flag the print `degraded: true`.
 
 ---
 
 ## Architecture
 
 ```
-                ┌──────────────────────────────────────────┐
-                │      SUPERVISOR (LLM) · every ~10 min    │
-                │  reads metrics → sets parameters →       │
-                │  explains why                            │
-                └───────────────┬──────────────────────────┘
-                                │ validated params
- ┌──────────────┐   ref price   ▼                 ┌──────────────┐
- │ PRICE FEED   │──────────▶ QUOTING ENGINE ◀─────│ RISK MANAGER │
- │ CoinGecko,   │            (every block)        │ hard limits  │
- │ CriptoYa...  │                │                │ kill switch  │
- └──────────────┘                │ target         └──────▲───────┘
-                                 ▼ orders                │
- ┌──────────────┐        ┌───────────────┐               │
- │ MARKET DATA  │───────▶│ ORDER MANAGER │───────────────┘
- │ Textile book │        │ place/cancel  │
- │ and fills    │        │ + attribution │
- └──────▲───────┘        │   tag         │
-        │                └───────┬───────┘
-        │                        ▼
-        └────────────── CELO MAINNET · Textile ──────────────
-                                 │
-                 ┌───────────────┴────────────────┐
-                 ▼                                ▼
-          ┌────────────┐                  ┌──────────────┐
-          │  STORAGE   │─────────────────▶│ TELEGRAM BOT │
-          │ SQLite:    │                  │ status, P&L, │
-          │ fills, P&L,│                  │ /pause, /off │
-          │ decisions  │                  │ /why         │
-          └────────────┘                  └──────────────┘
+            ┌───────────────────────────────────────────────┐
+            │   LLM SUPERVISOR  ·  every 10 min              │
+            │   reads market + inventory + risk →            │
+            │   sets inventory policy, explains why          │
+            └───────────────┬───────────────────────────────┘
+                            │ validated, clamped params
+ ┌──────────────┐  ref      ▼                  ┌──────────────────┐
+ │ PRICE FEED   │────▶  QUOTING ENGINE  ◀──────│ on-chain         │
+ │ CoinGecko    │       skew from live         │ inventory        │
+ │ CriptoYa     │       inventory              │ (USD₮, wARS)     │
+ │ DolarAPI     │           │                  └──────────────────┘
+ │ Textile      │           ▼
+ └──────────────┘      RISK MANAGER ── divergence · price jump · drawdown kill switch
+                            │
+                            ▼  { price: ref × (1 − skew), degraded }
+                    ┌──────────────────┐   http://127.0.0.1:8787/price
+                    │  FEED SERVER     │◀──────────────── Stitch polls every second
+                    └──────────────────┘
+                                              ┌────────────────────────────┐
+     Textile RFQ (wss) ──── quote request ───▶│  STITCH (Textile's filler) │
+     trader ◀──────────── signed EIP-712 ─────│  spread · balance caps     │
+       │                                      └────────────────────────────┘
+       └── settles on Celo (UniswapX reactor) ─▶ Fill event, swapper = our wallet
+
+ Ops: OFF function · heartbeat (/health, data/heartbeat.json) · npm run status
+      Telegram: /status /why /pause /resume /off + alerts (fills, kill switch, policy changes)
 ```
+
+The agent is **one long-running process** (`npm start`) next to the Stitch desktop app. If the agent dies, Stitch's next fetch fails and it stops quoting: **every failure mode ends in "not quoting", never in "quoting a stale price"**.
 
 ---
 
 ## Modules
 
-### 1. Price Feed: reference price ✅
+### Price feed ✅ `src/feeds/`
 
-`src/feeds/`
+- Four independent sources, queried in parallel with a timeout:
 
-- Queries independent sources in parallel with a timeout:
+  | Source | What it measures |
+  |---|---|
+  | CoinGecko | wARS / wBRL token price |
+  | CriptoYa | Median mid price across ~15 exchanges' USD₮ books |
+  | DolarAPI | "Dólar cripto" rate (ARS only) |
+  | Textile | Textile's own price endpoint (Stitch's default feed) |
 
-  | Source | Pairs | What it measures |
-  |---|---|---|
-  | CoinGecko | ARS, BRL | wARS / wBRL token price |
-  | CriptoYa | ARS, BRL | Median mid price across ~15 exchanges' USD₮ books |
-  | DolarAPI | ARS | "Dólar cripto" rate |
+- Drops invalid and **stale** quotes, then **outliers** (> 3% off the median), then takes the **median** of the rest. At least 2 agreeing sources are required, otherwise there is no price and the agent stops quoting.
+- The timestamp is that of the **oldest** input, so the reference is never fresher than its weakest source. For Stitch, sources older than 150 s are dropped: Stitch's RFQ path rejects older prints.
 
-- Drops invalid and **stale** quotes (older than 30 min), then **outliers** (more than 3% off the median), then takes the **median** of the rest.
-- At least 2 agreeing sources are required. Otherwise there is no price, and the agent cancels all orders. Trading without a trustworthy price is the fastest way to lose money.
-- The reported timestamp is that of the **oldest** input, so the reference is never fresher than its weakest source.
+### Quoting engine and skew ✅ `src/engine/`, `src/stitch/`
 
-### 2. Market Data: Textile state
-
-- Reads the order book and detects our own fills.
-- The implementation (API or contract events) depends on Textile's integration surface. See [Open questions](#open-questions).
-
-### 3. Quoting Engine ✅
-
-`src/engine/`
-
-A pure function: `(refPrice, params, inventory) → target orders`.
+A pure function, `(ref, params, inventory) → quotes`:
 
 ```
 bid = ref × (1 − spread/2 − skew)
 ask = ref × (1 + spread/2 − skew)
 ```
 
-- **Skew** is proportional to the inventory imbalance. With excess USD₮, both prices move down, so the agent sells more and buys less.
-- Skew is **capped at spread/4**, so the side pulled toward the reference always keeps at least a quarter of the spread as edge. It never quotes at or through the reference.
-- At full imbalance (target ± `inventoryBand`), the overweight side stops quoting.
-- Sizes are limited by available balances, and orders under 1 USD₮ are dropped.
-- Having no I/O makes it trivial to test, and the simulator reuses it as-is.
+- **Skew** is proportional to the inventory imbalance against a target USD₮ share, and **capped at spread/4**, so the side pulled toward the reference always keeps a quarter of the spread as edge.
+- `src/stitch/` reads the wallet's balances from the chain with every price refresh and publishes the engine's skewed midpoint. Until an inventory read succeeds, or when one fails, the print goes out `degraded`.
+- Parameter bounds (`clampParams`) are hard limits nothing can override, the supervisor included. Spreads are in basis points: 2 bps to 10% full width.
 
-**Parameters** (`src/engine/params.ts`). The supervisor proposes them, and `clampParams` forces them into hard bounds:
+### Risk manager ✅ `src/risk/`
 
-| Param | Default | Bounds | Meaning |
-|---|---|---|---|
-| `spread` | 2% | 0.5%–10% | Full bid-ask width |
-| `orderSize` | 10 USD₮ | 1–500 | Size per order |
-| `maxSkew` | 1% | 0–5% | Max price shift at full imbalance (further capped at spread/4) |
-| `targetBaseShare` | 50% | 10%–90% | Desired share of inventory value held in USD₮ |
-| `inventoryBand` | 35% | 5%–45% | Deviation from target at which the overweight side stops |
-| `paused` | false | | Quote nothing |
+Its only lever is the `degraded` flag. It can stop quoting, never move a price.
 
-### 4. Order Manager: on-chain execution
+| Check | Trips when | Effect |
+|---|---|---|
+| Divergence | Our reference is > 1% away from Textile's price, or Textile's price was rejected as an outlier | Paused while it lasts |
+| Price jump | The reference moves > 1.5% within 10 min (a devaluation, or a broken source) | Paused for a 15-min cooldown |
+| **Kill switch** | Mark-to-market inventory value falls > 3% below its peak | **Latched and persisted**, cleared only by a human (`--reset-kill`). A corrupt state file reads as tripped |
 
-- Diffs resting orders against target orders and only cancels or replaces when the difference exceeds a threshold, to save gas.
-- **Appends the attribution tag (ERC-8021) to every transaction** through a single wrapper around `viem` (using `@celo/attribution-tags`), so no transaction can go out untagged.
-- Handles nonces and retries, and pays gas in CELO or USD₮ via Celo fee abstraction. USD₮ has **6 decimals** on Celo and uses an adapter address for `feeCurrency`, while the wFiat tokens use 18.
-- **Cancels all open orders on startup**, so orders left behind by a crash never sit at stale prices.
+### LLM supervisor ✅ `src/supervisor/`
 
-### 5. Risk Manager: hard limits
+Every 10 minutes the supervisor gets a JSON summary:
 
-- Max order size, max inventory per currency, and max daily loss.
-- Allowed ranges for every supervisor parameter (`clampParams`).
-- **Kill switch**: on a large loss or a dead reference price, it cancels everything and alerts on Telegram.
+- reference moves over 10 min, 1 h and 6 h
+- inventory, drawdown and risk state
+- **our live quote vs the best maker on each side**, read from outside with restricted RFQ previews
+- fills in the last 24 h
+- current params and its own last three decisions
 
-### 6. Supervisor (LLM): desk head
-
-- Runs every ~10 minutes, or early on an alert (volatility, loss).
-- Input: a summary of volatility, P&L, inventory, recent fills, and the gap between Textile and the reference.
-- Output: JSON validated with `zod`, then clamped by the Risk Manager:
+It answers with a decision:
 
 ```json
-{ "spread": 0.025, "orderSize": 50, "paused": false,
-  "reason": "ARS volatility 2x vs yesterday, widening spread" }
+{ "paused": false, "targetBaseShare": 0.4, "maxSkewBps": 8, "inventoryBand": 0.3,
+  "recommendedSpreadBps": 15,
+  "reason": "The wARS offer side has only ~47 USD₮ of depth; lean toward holding wARS." }
 ```
 
-- Every decision is stored with its reasoning, as evidence of autonomy for the judges.
+- The reply is validated with `zod`. An invalid one gets a single retry that carries the validation error. The result is then clamped into the hard bounds.
+- The policy reaches Stitch **live, through the feed**. Stitch's spread needs a restart, so the supervisor can only *recommend* it, and the recommendation is logged.
+- If the LLM fails or times out, the last params stay. **The LLM is never on the critical path.**
+- Every call (context, decision, before/after params) is appended to `data/decisions.jsonl`: an audit trail of the agent's autonomy.
+- Provider-agnostic, over any OpenAI-compatible API. The default is [NVIDIA Build](https://build.nvidia.com) with `meta/llama-3.3-70b-instruct`.
 
-### 7. Storage: SQLite
+### Operations ✅ `src/lifecycle/`, `src/bot/`, `scripts/status.ts`
 
-Orders, fills, P&L snapshots and supervisor decisions. It backs the Telegram bot and the submission metrics.
+- **OFF function**: one idempotent `shutdown()` with ordered steps, each with its own timeout:
+  1. Go dark, serving `degraded` prints for 3 s so Stitch's 1 s loop sees them.
+  2. Save risk state.
+  3. Notify Telegram.
+  4. Stop the server.
+  5. Write a final heartbeat.
 
-### 8. Telegram Bot: control panel
+  It is triggered by Ctrl+C, SIGTERM, the console window closing (SIGHUP), `/off` on Telegram, and unhandled errors.
+- **Heartbeat**: written to `data/heartbeat.json` on every refresh and served on `GET /health`. `npm run status` uses it to tell a clean stop from a crash.
+- **Telegram bot**: `/status /why /pause /resume /off`, answered only for the owner's chat. Alerts cover start/stop, the kill switch, quoting ↔ paused changes, supervisor policy changes and every fill. A 💓 status arrives every 6 h, so silence means the agent is down.
+- **`npm run status`**: one screen with the process state, the wallet, our feed vs Textile's, our live quotes vs the best market, and our fills, read from Fill events on the settlement reactor.
 
-- `/status`: inventory, P&L, open orders
-- `/pause` and `/resume`: stop or resume quoting without stopping the process
-- `/off`: triggers the [OFF function](#off-function-graceful-shutdown), which cancels everything and stops the agent
-- `/why`: the supervisor's latest decision, explained
-- Automatic alerts: fills, kill switch, strategy changes, heartbeat
+### On-chain ✅ `src/chain/`, `scripts/`
 
-### 9. ERC-8004 identity
+- Every transaction the agent sends goes through `createAgentWallet()`, which applies the **ERC-8021 attribution tag** (`@celo/attribution-tags`), so no transaction can go out untagged.
+- Gas is paid in **USD₮ via Celo fee abstraction**: the wallet holds no CELO. That's also why we do the Permit2 approvals ourselves (`npm run approve`) instead of with Stitch, which needs native gas and wouldn't tag them.
+- **ERC-8004 identity**: `npm run identity` registered agentId 9972, with fully on-chain `data:` URI metadata.
 
-A one-off script that registers the agent's wallet and identity in the ERC-8004 Identity Registry (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` on Celo mainnet). It is not part of the loop.
+---
+
+## The wARS corridor: what the data says
+
+Read from Textile's public APIs (`/historical_trades`, `/v2/rfq/levels`, `/v2/rfq/preview`) on 2026-10-18.
+
+**There is real flow.** Since 2026-07-15: ~1,230 fills and ~251k USD₮ of volume, split evenly between both directions. In late September to mid October that was ~1–7k USD₮ a day.
+
+**The flow comes in ~100 USD₮ clips.** In the last 30 days the median trade was 100.0 USD₮ and the 90th percentile 100.3 USD₮, in both directions. It looks like one automated counterparty.
+
+**The two sides are very different:**
+
+| Trader direction | Best maker today | Depth |
+|---|---|---|
+| Sells wARS for USD₮ | ~0–1 bps from mid | ~97k USD₮ |
+| Buys wARS with USD₮ | ~0 bps from mid | **~47 USD₮** |
+
+The ticker shows `bid 0` for the second side only because it prices a ~100 USD₮ trade, and the one maker there can't cover it. **Any 100 USD₮ request on that side currently gets no quote.** The last fill on that side was on 2026-10-15, when that maker's inventory ran low.
+
+So the opening in this corridor is **inventory, not price**: a maker holding ≥ ~105 USD₮ of wARS would be the only one able to fill those trades. Our current capital (~5 USD₮) is below that, so the live deployment demonstrates the full system rather than capturing the flow. The same code scales with capital: inventory is read from the chain, and capacity is whatever the wallet holds.
+
+---
+
+## Concepts: market making and the spread
+
+**Example:** the "real" dollar is at 1,600 ARS. The agent quotes:
+
+| Quote | Price | Who takes it |
+|---|---|---|
+| **Bid** (buy USD₮) | 1,584 | Someone who needs pesos and sells USD₮ |
+| **Ask** (sell USD₮) | 1,616 | Someone who needs dollars |
+
+If both fill, the agent bought 1 USD₮ at 1,584 and sold it at 1,616. It earned **32 ARS without betting on the price direction**. (On Textile real spreads are basis points, not 1%: this is just the idea.)
+
+### The real risk: inventory and adverse selection
+
+If the dollar jumps from 1,600 to 1,750, everyone buys the agent's USD₮ at 1,616, and the agent is left holding pesos that are now worth less. The mitigations, all implemented:
+
+1. **A fresh, robust reference price**, with multiple sources, outlier rejection and short staleness limits.
+2. **Inventory skew**: when the agent holds too much of one currency, it shifts its prices to offload it.
+3. **Pausing on disorder**: the risk manager on price jumps and divergence, the supervisor on judgment, the kill switch on drawdown.
+
+---
+
+## Why the LLM doesn't trade directly
+
+An LLM takes seconds to respond, costs money per call, and is non-deterministic. Textile gives makers about a second to answer. So the design has layers:
+
+- **Execution (Stitch)** answers each RFQ in milliseconds.
+- **Quoting engine and risk manager** (deterministic code) run every 15 s and decide the price and whether to quote at all.
+- **Supervisor (LLM)** runs every ~10 minutes. It acts as the desk head: it sets the policy but never trades, and it explains every decision.
+
+wARS moves over minutes or hours outside of one-off events, and those events are exactly what the supervisor and the risk manager watch for.
 
 ---
 
@@ -266,34 +270,54 @@ A one-off script that registers the agent's wallet and identity in the ERC-8004 
 P&L = value_now(inventory) − value_start(inventory) − gas − fees
 ```
 
-Both values are in USD₮ at the reference price. Measuring *mark-to-market* matters: counting only "spread earned" would hide inventory losses.
+Both values are in USD₮ at the reference price. Measuring *mark-to-market* matters: counting only "spread earned" would hide inventory losses. The risk manager's drawdown check uses the same measure. Makers pay no Textile fee, and quoting is gasless, so the only costs are one-time approvals.
 
-We also report **P&L vs. hold**, which compares the result to doing nothing with the starting inventory. During a devaluation both can go negative in USD₮ terms, but the strategy should still beat holding.
+We also report **P&L vs. hold**, which compares the result to doing nothing with the starting inventory.
+
+---
+
+## Running it
+
+The live setup is a Windows PC running two things:
+
+1. **Stitch desktop app** ([releases](https://github.com/textile-protocol/textile-stitch/releases)):
+   - corridor wARS/USDT on Celo, 20 bps per side, taker leg off
+   - price feed URL `http://127.0.0.1:8787/price?pair=wars-usdt`
+   - `rfq_staleness_secs = 180` under `[feed]` in its `stitch.toml`
+2. **The agent**, from this repo: `npm start`.
+
+`.env` (see `.env.example`):
+
+| Variable | Needed for |
+|---|---|
+| `PRIVATE_KEY` | The agent wallet (generate one with `npm run wallet:new`; it's never printed) |
+| `ATTRIBUTION_TAG` | ERC-8021 tag from Loops House enrollment |
+| `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` | The supervisor (off without a key) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | The Telegram bot (`npm run telegram:chat-id` finds the id) |
+
+Other commands:
+
+```bash
+npm start -- --reset-kill          # clear a tripped kill switch after investigating
+npm run approve -- --token USDT    # Permit2 approval from the agent wallet (dry run; add --send)
+npm run balances                   # wallet balances + attribution tag check
+npm run identity -- --repo <url>   # ERC-8004 registration (dry run; add --send)
+```
+
+State lives in `data/` (git-ignored): `risk-*.json` (kill switch), `params-*.json` (the supervisor's policy), `decisions.jsonl` (the audit log), `heartbeat.json`, `control.json` (`/pause`).
 
 ---
 
 ## Simulator
 
-`sim/`. It backtests the real quoting engine on:
-
-- **`history`**: hourly wARS prices from CoinGecko (last N days)
-- **`calm` / `volatile` / `devaluation`**: synthetic random walks with optional devaluation jumps
+`sim/` backtests the quoting engine on hourly wARS prices from CoinGecko and on synthetic random walks with devaluation jumps:
 
 ```bash
-npm run sim -- --data history --days 30 --spread 0.02 --size 10 --capital 100
+npm run sim -- --data history --days 30 --spread 0.004
 npm run sim -- --data devaluation --sweep --seed 3
 ```
 
-Options: `--pair`, `--days`, `--seed`, `--spread`, `--size`, `--skew`, `--capital`, `--taker-rate`, `--decay`, `--gas`, `--fee`, `--requote`, `--sweep`.
-
-### ⚠️ The fill model is an assumption
-
-There is no historical Textile order flow yet, so fills come from two rules:
-
-1. **Crossing (adverse)**: if the reference moves through our price, an arbitrageur takes the stale order. These fills lose money.
-2. **Organic takers**: each hour, a taker hits each side with probability `takerRate × e^(−decay × distance%)`.
-
-The default `takerRate` is a placeholder, and **absolute P&L numbers from the simulator should not be trusted**. Use it to compare strategies and parameters against each other, and to check behavior under stress such as devaluations. The model will be calibrated once real Textile volume is known.
+⚠️ Its fill model (adverse crossings + probabilistic organic takers) predates what we learned about Textile, where flow arrives as RFQs for exact sizes. Use it to compare parameters against each other and to stress-test devaluations, not for absolute P&L.
 
 ---
 
@@ -301,78 +325,14 @@ The default `takerRate` is a placeholder, and **absolute P&L numbers from the si
 
 | Piece | Technology |
 |---|---|
-| Language | TypeScript + Node 24 |
+| Language | TypeScript (strict) + Node 24 |
 | Blockchain | [`viem`](https://viem.sh) + [`@celo/attribution-tags`](https://github.com/celo-org/attribution-tags) |
-| Celo reference | [Celopedia skill](https://celopedia.celo.org) in `.claude/skills/` (verified addresses, ERC-8004, fee abstraction) |
-| LLM | [NVIDIA Build](https://build.nvidia.com) via the `openai` SDK (OpenAI-compatible API) |
+| Execution | [Stitch](https://github.com/textile-protocol/textile-stitch), Textile's filler bot |
+| LLM | Any OpenAI-compatible API, default [NVIDIA Build](https://build.nvidia.com) (plain `fetch`) |
+| Telegram | Bot API over plain `fetch` (long polling) |
 | Validation | `zod` |
-| Database | SQLite (`better-sqlite3`) |
-| Telegram | `grammY` |
 | Tests | `vitest` |
-
-### LLM: NVIDIA Build
-
-NVIDIA Build exposes an OpenAI-compatible API, so we use the official `openai` SDK with a different `baseURL`:
-
-```ts
-import OpenAI from "openai";
-
-const llm = new OpenAI({
-  baseURL: process.env.LLM_BASE_URL, // https://integrate.api.nvidia.com/v1
-  apiKey: process.env.LLM_API_KEY,
-});
-```
-
-- The supervisor makes only a few calls per hour, well within free-tier limits.
-- The provider sits behind `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`, so switching providers (Claude, OpenAI, …) is configuration only.
-- Output is always validated with `zod`. Invalid output gets one retry, and if that also fails the previous parameters are kept.
-
----
-
-## Hosting and shutdown
-
-| Stage | Where | Notes |
-|---|---|---|
-| Development and simulation | **Local PC** | Free, no limits |
-| First mainnet runs | **Local PC** | Disable sleep |
-| Final week (24/7) | **Local** or [Oracle Cloud Always Free](https://www.oracle.com/cloud/free/) | The Oracle VM is free and runs 24/7 |
-
-> No Vercel or serverless: the agent is a **long-running process**, not a set of short functions.
-
-**Risk of running locally:** if the machine goes down, orders stay on the book at stale prices. No single safeguard covers every case, so several layer together.
-
-### OFF function (graceful shutdown)
-
-A single `shutdown()` winds down operations:
-
-1. Stops the engine and supervisor loops, so no new orders go out.
-2. **Cancels all open orders** on Textile and waits for on-chain confirmation.
-3. Saves a final inventory and P&L snapshot to SQLite.
-4. Notifies on Telegram ("🔴 Agent stopped, 0 open orders") and exits.
-
-It is idempotent, so a second trigger is a no-op. It also has a timeout so it never hangs on a dead network, and in that case it warns that orders may still be open.
-
-Triggers:
-
-| Trigger | When |
-|---|---|
-| `Ctrl+C` (`SIGINT`) | Stopping the process from the terminal |
-| `SIGTERM` | The OS or host stops the process |
-| `SIGHUP` | The console window is closed (Windows) |
-| `/off` on Telegram | Remote shutdown from a phone |
-| Kill switch | The Risk Manager detects a large loss or a dead reference price |
-| Unhandled error | `uncaughtException` / `unhandledRejection` |
-
-### What the OFF function can't cover
-
-A power cut, a system freeze or `kill -9` gives the process no chance to run anything. For those cases:
-
-1. **Cancel all open orders on startup**, before quoting.
-2. **Short order expiry**, if Textile supports it. This is the only safeguard that works while the process is dead.
-3. **Telegram heartbeat**: if it stops arriving, the process is down and orders can be cancelled by hand in the Textile app.
-4. **Bounded exposure**: the max order size caps what orphaned orders can lose.
-
-P&L and volume are measured on real activity, so ideally the agent trades **for at least the entire final week** before the deadline.
+| Celo reference | [Celopedia skill](https://celopedia.celo.org) in `.claude/skills/` |
 
 ---
 
@@ -381,21 +341,19 @@ P&L and volume are measured on real activity, so ideally the agent trades **for 
 ```
 textile-mm-agent/
 ├── src/
-│   ├── lib/          # shared helpers (median, clamp)                      ✅
-│   ├── feeds/        # price feed: sources, aggregation, pair config       ✅
-│   ├── engine/       # quoting engine and parameter bounds (pure)          ✅
-│   ├── market/       # Textile book and fills
-│   ├── orders/       # order manager + attribution tag wrapper
-│   ├── risk/         # limits and kill switch
-│   ├── supervisor/   # LLM + zod schema
-│   ├── bot/          # Telegram
-│   ├── db/           # SQLite
-│   ├── lifecycle/    # startup (cancel orphans) and OFF function
-│   └── main.ts       # main loop
-├── sim/              # backtester: price data, fill model, CLI           ✅
-├── scripts/          # price check ✅, ERC-8004 registration, balances
-├── test/             # vitest suites                                     ✅
-└── .claude/skills/   # Celopedia skill for coding agents
+│   ├── feeds/        # price sources, aggregation, pair config
+│   ├── engine/       # quoting engine and parameter bounds (pure)
+│   ├── stitch/       # feed server, Stitch print format, inventory skew
+│   ├── risk/         # risk manager, kill switch, persisted state
+│   ├── supervisor/   # LLM supervisor: context, prompt, decision schema, audit log
+│   ├── bot/          # Telegram client and commands
+│   ├── lifecycle/    # OFF function, heartbeat
+│   ├── textile/      # Textile RFQ previews and market snapshot
+│   ├── chain/        # Celo tokens, tagged wallet, inventory, fill detection
+│   └── identity/     # ERC-8004 metadata
+├── scripts/          # feed-server (npm start), status, supervise, approve, balances, identity…
+├── sim/              # backtester
+└── test/             # vitest suites
 ```
 
 ---
@@ -403,13 +361,11 @@ textile-mm-agent/
 ## Hackathon requirements
 
 - [x] Enrolled on [Loops House](https://www.loops.house/agents-on-open-rails) and got the **attribution tag**
-- [x] **Attribution tag (ERC-8021)** in the calldata of **every** transaction ([attribution-tags](https://github.com/celo-org/attribution-tags)). Untagged transactions can't be credited later.
-- [x] Agent's **ERC-8004 identity** registered: **agentId 9972** ([tx](https://celoscan.io/tx/0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148)), registered ([docs](https://docs.celo.org/build-on-celo/build-with-ai/8004) · [8004scan](https://8004scan.io))
-- [ ] Trades on **Celo mainnet** (chain id `42220`). Testnet transactions don't count.
-- [x] **Public GitHub repo** from enrollment through judging
+- [x] **Attribution tag (ERC-8021)** on every transaction the agent sends (enforced by `createAgentWallet()`)
+- [x] **ERC-8004 identity**: **agentId 9972** ([tx](https://celoscan.io/tx/0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148))
+- [x] Activity on **Celo mainnet**: registration, Permit2 approvals ([USD₮](https://celoscan.io/tx/0xb0d87848090f3149f2c597dee02fc87ae74778c1e0349da9e9ee2ea82341169d), [wARS](https://celoscan.io/tx/0x2493af79550153337f6dfeed3a41167c0abba474918d747cfc47ad0611dba9fa)), and live RFQ quoting
+- [x] **Public GitHub repo**
 - [x] Code written during the hackathon
-
-**Dates**
 
 | Date | Event |
 |---|---|
@@ -420,38 +376,18 @@ textile-mm-agent/
 
 ## Roadmap
 
-### Week 1: foundations and simulation
-- [x] Project setup (TypeScript, vitest)
-- [x] Price feed with multiple sources and median
-- [x] Quoting engine with tests
-- [x] Simulator on historical and synthetic prices
-- [x] Enrollment and attribution tag
-- [x] ERC-8004 registration (agentId 9972)
-- [ ] Find out how to integrate with Textile
-
-### Week 2: on-chain
-- [ ] Market data (Textile book and fills)
-- [ ] Order manager with attribution tag
-- [ ] Risk manager and kill switch
-- [ ] OFF function and cancel-on-startup
-- [ ] First real orders on mainnet with minimal sizes
-
-### Week 3: agent and submission
-- [ ] LLM supervisor (NVIDIA Build)
-- [ ] Telegram bot
-- [ ] Continuous mainnet operation to build up P&L and volume
-- [ ] Final README, metrics and demo video
-
----
-
-## Open questions
-
-For the [hackathon Telegram](https://t.me/realworldagentshackathon):
-
-- Does Textile have an API or SDK, or do we interact with the contracts directly? Where are the addresses and ABIs?
-- How are limit orders placed and cancelled? Do they support expiry?
-- How much liquidity and volume do wARS/USD₮ and wBRL/USD₮ have today?
-- Are there maker or taker fees?
+- [x] Price feed, quoting engine, simulator
+- [x] Wallet, attribution tag, ERC-8004 identity
+- [x] Textile integration via Stitch: live RFQ quoting on mainnet
+- [x] Inventory skew through the feed
+- [x] Risk manager and kill switch
+- [x] OFF function, heartbeat, status command
+- [x] LLM supervisor with audit log
+- [x] Telegram bot
+- [ ] Continuous operation through the deadline, with the supervisor and Telegram live
+- [ ] Two-sided inventory (wARS) so both directions are quoted
+- [ ] Public evidence page: decisions, quotes and fills
+- [ ] Demo video
 
 ---
 
@@ -460,16 +396,14 @@ For the [hackathon Telegram](https://t.me/realworldagentshackathon):
 **Hackathon and Celo**
 - Hackathon: https://www.loops.house/agents-on-open-rails
 - Celo docs: https://docs.celo.org
-- Celopedia: https://celopedia.celo.org (`npx skills add celo-org/celopedia-skills`)
-- ERC-8004: https://docs.celo.org/build-on-celo/build-with-ai/8004
+- ERC-8004: https://docs.celo.org/build-on-celo/build-with-ai/8004 · [8004scan](https://8004scan.io)
 - Attribution tags: https://github.com/celo-org/attribution-tags
 
-**Textile, stablecoins and ramps**
-- Textile FX: https://app.textilecredit.com
-- Ripio docs: https://docs.ripio.com
-- Ripio ramp: https://ramp.ripio.com
-- Ripio bridge: https://bridge.ripio.com
-- USD₮ faucet (mainnet): https://cloud.google.com/application/web3/faucet/celo/mainnet
+**Textile**
+- App: https://app.textilecredit.com
+- Docs: https://fx-docs.textilecredit.com (filler guide: [how to become a filler](https://fx-docs.textilecredit.com/guides/how-to-become-a-filler.html))
+- Stitch: https://github.com/textile-protocol/textile-stitch
+- Public data: `https://api.textilecredit.com/tickers`, `/historical_trades`, `/v2/rfq/levels`
 
 **Token addresses** (Celo mainnet)
 
@@ -479,7 +413,5 @@ For the [hackathon Telegram](https://t.me/realworldagentshackathon):
 | wBRL | `0xd76f5faf6888e24d9f04bf92a0c8b921fe4390e0` | 18 |
 | USD₮ | `0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e` | 6 |
 | USD₮ fee adapter | `0x0e2a3e05bc9a16f5292a6170456a710cb89c6f72` | |
-
-**Support**
-- Telegram: https://t.me/realworldagentshackathon
-- Office hours: Thursdays 12:00 GMT
+| Textile reactor (UniswapX) | `0xa9AA0a64769cBed4d3B1Ceb4Df01CdE915C235b3` | |
+| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | |
