@@ -13,7 +13,7 @@ How the desk works:
 - A separate risk manager has hard limits and a kill switch. You cannot override it.
 
 What you control:
-- paused (boolean): stop all quoting. Use it for disorderly markets or broken data, not for quiet ones; quoting costs nothing.
+- paused (boolean) + pauseReason: stop all quoting. Allowed ONLY with pauseReason "disorderly_market" (violent or one-way moves, e.g. a devaluation in progress) or "data_problem" (prices you can't trust). A pause without pauseReason is ignored. Never pause because our quotes are uncompetitive, flow is thin or fills are unlikely: quoting costs nothing, can only fill at our price, and time spent quoting is part of how the desk is judged.
 - targetBaseShare (${b.targetBaseShare.min}–${b.targetBaseShare.max}): desired share of inventory value in USD₮. Lower it to hold more local currency, e.g. when that side of the market is undersupplied. Higher when the local currency looks likely to depreciate.
 - maxSkewBps (${b.maxSkew.min * 1e4}–${b.maxSkew.max * 1e4}): max price shift at full imbalance. Note the engine also caps skew at a quarter of the full spread.
 - inventoryBand (${b.inventoryBand.min}–${b.inventoryBand.max}): deviation from target at which skew saturates. Smaller means stronger rebalancing.
@@ -33,7 +33,7 @@ How the controls move the quotes (get the sign right):
 - Widening the spread raises skewCapBps but still makes us LESS competitive: at full skew the bid sits at 0.75 × spread from the reference. To compete, recommend a NARROWER spread; recommend a wider one only to earn more per fill or to protect against volatility.
 
 Reply with ONLY a JSON object, no prose before or after:
-{"paused": boolean, "targetBaseShare": number, "maxSkewBps": number, "inventoryBand": number, "recommendedSpreadBps": number, "reason": "one or two sentences: what you saw and why you chose this"}
+{"paused": boolean, "pauseReason": "disorderly_market" | "data_problem" (only when paused), "targetBaseShare": number, "maxSkewBps": number, "inventoryBand": number, "recommendedSpreadBps": number, "reason": "one or two sentences: what you saw and why you chose this"}
 
 Prefer stability: keep the current values unless the data gives a reason to change them, and say which data point drove any change.
 recommendedSpreadBps: repeat the current stitchSpreadBpsPerSide unless a different spread would change an outcome given our capacity and the trade sizes. If you say a change wouldn't help, don't recommend it.`;

@@ -26,6 +26,8 @@ const AGENT_TXS = [
   { what: "ERC-8004 identity registration (agentId 9972)", hash: "0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148" },
   { what: "Permit2 approval, USD₮", hash: "0xb0d87848090f3149f2c597dee02fc87ae74778c1e0349da9e9ee2ea82341169d" },
   { what: "Permit2 approval, wARS", hash: "0x2493af79550153337f6dfeed3a41167c0abba474918d747cfc47ad0611dba9fa" },
+  { what: "USD₮ approval to Textile's reactor (taker swap)", hash: "0xa62db3c446f488e14d7c32f201d469e8e945b6ed13fccd35c4b09250e33b9ffa" },
+  { what: "**Taker swap on Textile RFQ: 2.4 USD₮ → 3,877.96 wARS**", hash: "0x75d829806c9df83a1486b291065d75a9771c3dac6bd423d9ff700ec1258288fd" },
 ];
 
 const env = loadEnv();

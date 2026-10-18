@@ -59,6 +59,20 @@ describe("applyDecision", () => {
   });
 });
 
+describe("pause guard", () => {
+  it("drops a pause without an allowed reason", () => {
+    expect(applyDecision(DEFAULT_PARAMS, { ...decision, paused: true }).paused).toBe(false);
+  });
+
+  it("applies a pause with an allowed reason", () => {
+    expect(applyDecision(DEFAULT_PARAMS, { ...decision, paused: true, pauseReason: "disorderly_market" }).paused).toBe(true);
+  });
+
+  it("rejects a made-up pause reason", () => {
+    expect(() => parseDecision(JSON.stringify({ ...decision, paused: true, pauseReason: "low_volume" }))).toThrow();
+  });
+});
+
 describe("createSupervisor", () => {
   it("applies a valid decision and records it", async () => {
     const h = harness(async () => JSON.stringify(decision));

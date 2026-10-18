@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { clampParams, type QuoteParams } from "../engine/params.js";
 
+/** The only grounds the supervisor may pause on. Thin flow or uncompetitive quotes are not among them. */
+export const PAUSE_REASONS = ["disorderly_market", "data_problem"] as const;
+
 /**
  * What the supervisor may change. Everything here reaches Stitch through our
  * feed without a restart; Stitch's own spread can't, so it is only a
@@ -8,6 +11,8 @@ import { clampParams, type QuoteParams } from "../engine/params.js";
  */
 export const decisionSchema = z.object({
   paused: z.boolean(),
+  /** Required for a pause to take effect. */
+  pauseReason: z.enum(PAUSE_REASONS).optional(),
   /** Desired share of inventory value held in USD₮, 0.1–0.9. */
   targetBaseShare: z.number(),
   /** Max skew at full imbalance, in basis points. */
@@ -21,11 +26,15 @@ export const decisionSchema = z.object({
 
 export type Decision = z.infer<typeof decisionSchema>;
 
-/** Folds a decision into the current params, inside the hard bounds. Spread is never touched. */
+/**
+ * Folds a decision into the current params, inside the hard bounds. Spread is
+ * never touched, and a pause without one of PAUSE_REASONS is dropped: quoting
+ * costs nothing, so "we won't win much" is never a reason to go dark.
+ */
 export function applyDecision(params: QuoteParams, d: Decision): QuoteParams {
   return clampParams({
     ...params,
-    paused: d.paused,
+    paused: d.paused && d.pauseReason !== undefined,
     targetBaseShare: d.targetBaseShare,
     maxSkew: d.maxSkewBps / 1e4,
     inventoryBand: d.inventoryBand,

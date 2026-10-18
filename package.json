@@ -22,7 +22,8 @@
     "supervise": "tsx scripts/supervise.ts",
     "start": "tsx scripts/feed-server.ts",
     "telegram:chat-id": "tsx scripts/telegram-chat-id.ts",
-    "report": "tsx scripts/report.ts"
+    "report": "tsx scripts/report.ts",
+    "swap": "tsx scripts/swap.ts"
   },
   "license": "MIT",
   "dependencies": {
