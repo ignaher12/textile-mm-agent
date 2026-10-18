@@ -23,6 +23,32 @@ export const TOKENS = {
  */
 export const USDT_FEE_CURRENCY: Address = "0x0e2a3e05bc9a16f5292a6170456a710cb89c6f72";
 
+/** Canonical Permit2 (same address on every chain). Textile's reactor pulls maker funds through it. */
+export const PERMIT2: Address = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+
+export const erc20AllowanceAbi = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
 export const erc20BalanceAbi = [
   {
     type: "function",
