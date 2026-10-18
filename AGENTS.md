@@ -90,6 +90,14 @@ Docs: https://docs.textilecredit.com (same content at https://fx-docs.textilecre
 - **Panel wizard's Fund step asks for ~$0.06 of CELO** even with all approvals done. That is a wizard gate only (the start handler doesn't check gas, and RFQ quoting is gasless), so use its Skip link.
 - Windows: `irm https://github.com/textile-protocol/textile-stitch/releases/latest/download/stitch-installer.ps1 | iex`, or the desktop app (panel on `127.0.0.1:8420`).
 
+## Live status (2026-10-18 02:35 UTC)
+
+- **Stitch is live** on wars-usdt-celo as maker `stitch-42220-78d8e34a`: desktop app, config in `%APPDATA%\Stitchots x78d8e34a\stitch.toml`, Textile default feed, 20/20 bps, taker leg off.
+- **Verify from outside** (no auth): `POST https://api.textilecredit.com/v2/rfq/preview` with `restrictedLiquidityWallets: [our wallet]`, and `GET /v2/rfq/levels?chainId=42220`. The preview restricted to us answers ~19 bps under mid with `availableSellAmount` ≈ 7,990 wARS (our ~4.93 USD₮).
+- **Real competition, read from `/v2/rfq/levels`. This corrects the ticker reading above:**
+  - Trader sells wARS → USD₮ (our buy side): an incumbent quotes **at mid (~0 bps)** with ~97k USD₮ of depth. We won't win that side at 20 bps.
+  - Trader sells USD₮ → wARS (needs wARS): **not empty, just thin.** One maker quotes ~1 bps, but capacity is only **~47 USD₮**. The ticker shows `bid 0` because it prices a ~100 USD₮ trade, and an RFQ quote must cover the whole size (no partial fills). Any trade above ~47 USD₮ on this side gets `no_quote` today. **That's our opening: hold wARS and serve the larger sizes.**
+
 ## Decision: execution via Stitch (option A)
 
 Decided with the user on 2026-10-17:
