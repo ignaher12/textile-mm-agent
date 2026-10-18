@@ -217,6 +217,7 @@ if (env.LLM_API_KEY) {
     if (halted || !inventory || refPrice === null) return;
     const context = await buildLiveContext({
       me: owner, client, refPrice, history: supervised.history, inventory, risk: supervised.decision,
+      skewNow: { bps: supervised.skew.get().skew * 1e4, imbalance: supervised.skew.get().imbalance ?? 0 },
       params: supervised.params, stitchSpreadBpsPerSide: STITCH_SPREAD_BPS_PER_SIDE, recentDecisions: [...recentDecisions],
     });
     const r = await supervisor.run(context);

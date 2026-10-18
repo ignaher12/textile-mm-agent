@@ -186,7 +186,7 @@ It answers with a decision:
 - The policy reaches Stitch **live, through the feed**. Stitch's spread needs a restart, so the supervisor can only *recommend* it, and the recommendation is logged.
 - If the LLM fails or times out, the last params stay. **The LLM is never on the critical path.**
 - Every call (context, decision, before/after params) is appended to `data/decisions.jsonl`: an audit trail of the agent's autonomy.
-- Provider-agnostic, over any OpenAI-compatible API. The default is [NVIDIA Build](https://build.nvidia.com) with `meta/llama-3.3-70b-instruct`.
+- Provider-agnostic, over any OpenAI-compatible API. The default is [NVIDIA Build](https://build.nvidia.com) with `nvidia/nemotron-3-super-120b-a12b` (a reasoning model: ~1 min per decision, fine at a 10-min cadence).
 
 ### Operations ✅ `src/lifecycle/`, `src/bot/`, `scripts/status.ts`
 

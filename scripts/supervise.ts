@@ -8,6 +8,7 @@ import { createCeloClient } from "../src/chain/celo.js";
 import { readInventory } from "../src/chain/inventory.js";
 import { loadEnv, required } from "../src/config/env.js";
 import { DEFAULT_PARAMS, type QuoteParams } from "../src/engine/params.js";
+import { computeQuotes } from "../src/engine/quote.js";
 import { createPairFeed } from "../src/feeds/pairs.js";
 import { createRiskManager } from "../src/risk/riskManager.js";
 import { createPriceHistory } from "../src/supervisor/context.js";
@@ -25,12 +26,14 @@ async function main() {
   if (!ref.ok) throw new Error(`no reference price: ${ref.reason}`);
   const inventory = await readInventory(client, me, "USDT/ARS");
   const params = createParamsStore("data/params-wars-usdt.json").load() ?? DEFAULT_PARAMS;
+  const q = computeQuotes(ref.price, params, inventory);
   const risk = createRiskManager().evaluate({ now: Date.now(), ref: ref.price, nav: inventory.base + inventory.quote / ref.price });
   const history = createPriceHistory();
   history.add(Date.now(), ref.price);
 
   const context = await buildLiveContext({
     me, client, refPrice: ref.price, history, inventory, risk, params, stitchSpreadBpsPerSide: 20, recentDecisions: [],
+    skewNow: { bps: q.skew * 1e4, imbalance: q.imbalance },
   });
   console.log("Context sent to the supervisor:\n" + JSON.stringify(context, null, 2));
 

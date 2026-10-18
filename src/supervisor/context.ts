@@ -10,10 +10,14 @@ export interface SupervisorContext {
   /** Reference change over each window, as a fraction (null without enough history). */
   moves: { m10: number | null; h1: number | null; h6: number | null };
   inventory: { usdt: number; local: number; usdtShare: number; navUsdt: number };
+  /** Skew applied right now, and the imbalance behind it (−1…1; ±1 = saturated, skew at its cap). */
+  skewNow: { bps: number; imbalance: number } | null;
   drawdown: number;
   risk: { paused: boolean; reasons: string[]; killed: string | null };
   market: MarketSnapshot | null;
   stitchSpreadBpsPerSide: number;
+  /** Where our quotes sit right now, from our reference: the spread per side shifted by the skew. */
+  ourQuotesFromRef: { bidForLocalBps: number; offerOfLocalBps: number } | null;
   fillsLast24h: number | null;
   params: { targetBaseShare: number; maxSkewBps: number; inventoryBand: number; paused: boolean; skewCapBps: number };
   recentDecisions: { time: string; reason: string }[];

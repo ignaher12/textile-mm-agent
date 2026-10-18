@@ -8,7 +8,9 @@ export interface ChatMessage {
 export type ChatFn = (messages: ChatMessage[]) => Promise<string>;
 
 const completionSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  choices: z
+    .array(z.object({ finish_reason: z.string().nullable().optional(), message: z.object({ content: z.string().nullable() }) }))
+    .min(1),
 });
 
 /**
@@ -22,18 +24,26 @@ export function createChat(opts: {
   model: string;
   timeoutMs?: number;
   temperature?: number;
+  /** Reasoning models spend part of this thinking before they answer, so keep it roomy. */
+  maxTokens?: number;
 }): ChatFn {
-  const { baseUrl, apiKey, model, timeoutMs = 60_000, temperature = 0.2 } = opts;
+  const { baseUrl, apiKey, model, timeoutMs = 240_000, temperature = 0.2, maxTokens = 16_384 } = opts;
   return async (messages) => {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages, temperature, max_tokens: 800 }),
+      body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const content = completionSchema.parse(await res.json()).choices[0]!.message.content;
-    if (!content) throw new Error("LLM returned an empty message");
-    return content;
+    const choice = completionSchema.parse(await res.json()).choices[0]!;
+    if (!choice.message.content) {
+      throw new Error(
+        choice.finish_reason === "length"
+          ? `LLM ran out of tokens before answering (max_tokens ${maxTokens}; reasoning models think first)`
+          : "LLM returned an empty message",
+      );
+    }
+    return choice.message.content;
   };
 }

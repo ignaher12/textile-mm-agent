@@ -22,6 +22,14 @@ Reading the state:
 - refPrice is local currency per USD₮. moves are fractional changes of it over 10 min / 1 h / 6 h (null = not enough history yet).
 - market.traderSellsWars = makers bidding for wARS; market.traderBuysWars = makers offering wARS. "ours" is our live quote, "best" the best across all makers (ours included). bps is the distance from our reference on the maker's side (below it for bids, above for offers); depthUsdt is how much that quote can fill. An error means no quote (e.g. we hold none of the token that side needs).
 - params.skewCapBps is the skew actually reachable (min of maxSkewBps and a quarter of the full spread).
+- skewNow is the skew applied right now and the imbalance behind it (+1 = all USD₮ vs target, −1 = all local currency). When |imbalance| is 1 the skew is at its cap.
+- ourQuotesFromRef is where our quotes sit: bidForLocalBps = spread − skew (how far below the reference we pay for wARS), offerOfLocalBps = spread + skew (how far above it we sell wARS). Smaller = more competitive. Compare with market.*.best.bps.
+
+How the controls move the quotes (get the sign right):
+- Skew > 0 (too much USD₮) pulls our wARS bid TOWARD the reference: more competitive for buying wARS, which is what rebalances us. It pushes our wARS offer away.
+- Raising targetBaseShare toward the current usdtShare SHRINKS the imbalance, so it SHRINKS skew and makes our wARS bid LESS competitive. Lowering targetBaseShare (or inventoryBand) does the opposite, but only until imbalance saturates at ±1.
+- Skew can never exceed skewCapBps, so no setting here can bring a quote closer to the reference than spread − skewCapBps. If the best competitor is closer than that, say so and recommend a spread instead of fighting it with these controls.
+- Widening the spread raises skewCapBps but still makes us LESS competitive: at full skew the bid sits at 0.75 × spread from the reference. To compete, recommend a NARROWER spread; recommend a wider one only to earn more per fill or to protect against volatility.
 
 Reply with ONLY a JSON object, no prose before or after:
 {"paused": boolean, "targetBaseShare": number, "maxSkewBps": number, "inventoryBand": number, "recommendedSpreadBps": number, "reason": "one or two sentences: what you saw and why you chose this"}

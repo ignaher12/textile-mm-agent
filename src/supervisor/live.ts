@@ -19,6 +19,7 @@ export async function buildLiveContext(deps: {
   refPrice: number;
   history: ReturnType<typeof createPriceHistory>;
   inventory: Inventory;
+  skewNow?: SupervisorContext["skewNow"];
   risk: RiskDecision;
   params: QuoteParams;
   stitchSpreadBpsPerSide: number;
@@ -49,10 +50,17 @@ export async function buildLiveContext(deps: {
       h6: deps.history.move(6 * HOUR, now),
     },
     inventory: { usdt, local, usdtShare: navUsdt > 0 ? usdt / navUsdt : 1, navUsdt },
+    skewNow: deps.skewNow ?? null,
     drawdown: deps.risk.drawdown,
     risk: { paused: deps.risk.paused, reasons: deps.risk.reasons, killed: deps.risk.killed },
     market,
     stitchSpreadBpsPerSide: deps.stitchSpreadBpsPerSide,
+    ourQuotesFromRef: deps.skewNow
+      ? {
+          bidForLocalBps: deps.stitchSpreadBpsPerSide - deps.skewNow.bps,
+          offerOfLocalBps: deps.stitchSpreadBpsPerSide + deps.skewNow.bps,
+        }
+      : null,
     fillsLast24h,
     params: paramsView(deps.params),
     recentDecisions: deps.recentDecisions,

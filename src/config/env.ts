@@ -21,7 +21,7 @@ const envSchema = z.object({
   // LLM supervisor (any OpenAI-compatible API). Without a key it stays off.
   LLM_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://integrate.api.nvidia.com/v1")),
   LLM_API_KEY: optional(z.string()),
-  LLM_MODEL: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("meta/llama-3.3-70b-instruct")),
+  LLM_MODEL: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("nvidia/nemotron-3-super-120b-a12b")),
   TELEGRAM_BOT_TOKEN: optional(z.string()),
   TELEGRAM_CHAT_ID: optional(z.string()),
 });
