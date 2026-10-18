@@ -35,7 +35,8 @@ How the controls move the quotes (get the sign right):
 Reply with ONLY a JSON object, no prose before or after:
 {"paused": boolean, "targetBaseShare": number, "maxSkewBps": number, "inventoryBand": number, "recommendedSpreadBps": number, "reason": "one or two sentences: what you saw and why you chose this"}
 
-Prefer stability: keep the current values unless the data gives a reason to change them, and say which data point drove any change.`;
+Prefer stability: keep the current values unless the data gives a reason to change them, and say which data point drove any change.
+recommendedSpreadBps: repeat the current stitchSpreadBpsPerSide unless a different spread would change an outcome given our capacity and the trade sizes. If you say a change wouldn't help, don't recommend it.`;
 
 export function buildMessages(ctx: SupervisorContext): ChatMessage[] {
   return [

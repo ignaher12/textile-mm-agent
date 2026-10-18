@@ -228,8 +228,10 @@ if (env.LLM_API_KEY) {
       if (recentDecisions.length > 3) recentDecisions.shift();
       const p = r.after;
       console.log(
-        `${time} 🧠 supervisor: share ${p.targetBaseShare} skew ${(p.maxSkew * 1e4).toFixed(1)} bps band ${p.inventoryBand}` +
-          `${p.paused ? " PAUSED" : ""} — ${r.decision.reason}`,
+        `${time} 🧠 supervisor: share ${p.targetBaseShare} band ${p.inventoryBand} ` +
+          `skew cap ${(Math.min(p.maxSkew, p.spread / 4) * 1e4).toFixed(1)} bps${p.paused ? " PAUSED" : ""}` +
+          `${r.decision.recommendedSpreadBps !== undefined ? ` (recommends spread ${r.decision.recommendedSpreadBps} bps/side)` : ""}` +
+          ` — ${r.decision.reason}`,
       );
       const b = r.before;
       const changed =
