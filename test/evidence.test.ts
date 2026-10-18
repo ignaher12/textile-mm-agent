@@ -53,6 +53,22 @@ describe("summarize", () => {
     expect(e.pnl!.vsHoldUsdt).toBeCloseTo(6.05 - (5 + 1600 / 1700), 10);
   });
 
+  it("re-bases the hold portfolio after our own rebalancing swap, keeping its cost", () => {
+    // Start 5 USD₮. At t≈1 we swap 2.5 USD₮ for wARS, losing 0.01 to fees. Then nothing trades.
+    const metrics = [
+      sample(0, { usdt: 5, local: 0, navUsdt: 5 }),
+      sample(1, { usdt: 2.5, local: 3984, navUsdt: 2.5 + 3984 / 1600 }),
+      sample(2, { ref: 1700, usdt: 2.5, local: 3984, navUsdt: 2.5 + 3984 / 1700 }),
+    ];
+    const plain = summarize(metrics, [], [], MIN5)!;
+    // Without knowing about the swap, the peso's fall reads as a loss vs holding USD₮.
+    expect(plain.pnl!.vsHoldUsdt).toBeCloseTo(2.5 + 3984 / 1700 - 5, 10);
+
+    const e = summarize(metrics, [], [], MIN5, [MIN5 / 2])!;
+    // Hold switches to the post-swap mix at the pre-swap value: only the 0.01 fee remains.
+    expect(e.pnl!.vsHoldUsdt).toBeCloseTo(-0.01 * (2.5 + 3984 / 1700) / (2.5 + 3984 / 1600), 10);
+  });
+
   it("counts supervisor calls and real policy changes", () => {
     const base = { time: "t", error: null, before: DEFAULT_PARAMS, context: {} as never };
     const decision = { paused: false, targetBaseShare: 0.2, maxSkewBps: 100, inventoryBand: 0.2, reason: "lean wARS", recommendedSpreadBps: 20 };

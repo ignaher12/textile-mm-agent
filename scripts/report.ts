@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
+import type { Hex } from "viem";
 import { agentAddress } from "../src/chain/wallet.js";
 import { createCeloClient } from "../src/chain/celo.js";
 import { findMakerFills } from "../src/chain/fills.js";
@@ -21,13 +22,17 @@ const { values: args } = parseArgs({
 });
 const OUT = args.out;
 
-/** Transactions the agent wallet sent itself. Swaps are sent by takers, so they show up as fills instead. */
-const AGENT_TXS = [
+/**
+ * Transactions the agent wallet sent itself. Maker fills are sent by takers, so
+ * they show up as fills instead. `rebalance` marks our own taker swaps, which
+ * the P&L vs hold must not read as market making.
+ */
+const AGENT_TXS: { what: string; hash: Hex; rebalance?: true }[] = [
   { what: "ERC-8004 identity registration (agentId 9972)", hash: "0xead3c3e993ee2fdb11e383240032d68e1599f27034cda9d351057642edc68148" },
   { what: "Permit2 approval, USD₮", hash: "0xb0d87848090f3149f2c597dee02fc87ae74778c1e0349da9e9ee2ea82341169d" },
   { what: "Permit2 approval, wARS", hash: "0x2493af79550153337f6dfeed3a41167c0abba474918d747cfc47ad0611dba9fa" },
   { what: "USD₮ approval to Textile's reactor (taker swap)", hash: "0xa62db3c446f488e14d7c32f201d469e8e945b6ed13fccd35c4b09250e33b9ffa" },
-  { what: "**Taker swap on Textile RFQ: 2.4 USD₮ → 3,877.96 wARS**", hash: "0x75d829806c9df83a1486b291065d75a9771c3dac6bd423d9ff700ec1258288fd" },
+  { what: "**Taker swap on Textile RFQ: 2.4 USD₮ → 3,877.96 wARS**", hash: "0x75d829806c9df83a1486b291065d75a9771c3dac6bd423d9ff700ec1258288fd", rebalance: true },
 ];
 
 const env = loadEnv();
@@ -46,7 +51,13 @@ const since = metrics.length ? Math.min(...metrics.map((m) => m.t)) : Date.now()
 const fromBlock = head - BigInt(Math.ceil((Date.now() - since) / 1000)) - 600n;
 const fills = await findMakerFills(client, me, fromBlock, head);
 
-const e = summarize(metrics, decisions, fills, METRICS_INTERVAL_MS);
+const rebalancesAt = await Promise.all(
+  AGENT_TXS.filter((t) => t.rebalance).map(async (t) => {
+    const { blockNumber } = await client.getTransactionReceipt({ hash: t.hash });
+    return Number((await client.getBlock({ blockNumber })).timestamp) * 1000;
+  }),
+);
+const e = summarize(metrics, decisions, fills, METRICS_INTERVAL_MS, rebalancesAt);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, render(e));
 console.log(`Wrote ${OUT} (${metrics.length} metric samples, ${decisions.length} decisions, ${fills.length} fills)`);
@@ -111,7 +122,7 @@ function render(e: Evidence | null): string {
       `| Inventory value at start | ${usd(e.pnl.navStart)} |`,
       `| Inventory value now | ${usd(e.pnl.navEnd)} |`,
       `| **P&L** | **${usd(e.pnl.pnlUsdt)}** |`,
-      `| Holding the starting inventory instead | ${usd(e.pnl.holdEnd)} |`,
+      `| Holding the inventory instead (switched to the new mix after our own swaps, at equal value) | ${usd(e.pnl.holdEnd)} |`,
       `| **P&L vs hold** | **${usd(e.pnl.vsHoldUsdt)}** |`,
       "",
       "Balances are read from the chain, so gas and fees are already in these numbers.",

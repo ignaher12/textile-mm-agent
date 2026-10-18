@@ -32,8 +32,18 @@ export interface Evidence {
   };
 }
 
-/** Folds the metrics log, the supervisor's records and on-chain fills into the numbers the report shows. */
-export function summarize(metrics: Metric[], decisions: DecisionRecord[], fills: MakerFill[], intervalMs: number): Evidence | null {
+/**
+ * Folds the metrics log, the supervisor's records and on-chain fills into the
+ * numbers the report shows. `rebalancesAt` are the times (ms) of our own taker
+ * swaps, which change the inventory without being maker P&L.
+ */
+export function summarize(
+  metrics: Metric[],
+  decisions: DecisionRecord[],
+  fills: MakerFill[],
+  intervalMs: number,
+  rebalancesAt: number[] = [],
+): Evidence | null {
   if (metrics.length === 0) return null;
   const sorted = [...metrics].sort((a, b) => a.t - b.t);
   const from = sorted[0]!.t;
@@ -75,7 +85,21 @@ export function summarize(metrics: Metric[], decisions: DecisionRecord[], fills:
   const pnl =
     first && last
       ? (() => {
-          const holdEnd = first.usdt! + first.local! / last.ref!;
+          // The "hold" portfolio starts as our first inventory. After one of our own
+          // rebalancing swaps it switches to the new mix at the value it had then, so
+          // the swap's cost still counts against us but its new mix isn't read as P&L.
+          let holdUsdt = first.usdt!;
+          let holdLocal = first.local!;
+          let prev = first;
+          for (const m of withNav.slice(1)) {
+            if (rebalancesAt.some((t) => t > prev.t && t <= m.t)) {
+              const scale = (holdUsdt + holdLocal / m.ref!) / m.navUsdt!;
+              holdUsdt = m.usdt! * scale;
+              holdLocal = m.local! * scale;
+            }
+            prev = m;
+          }
+          const holdEnd = holdUsdt + holdLocal / last.ref!;
           return {
             navStart: first.navUsdt!,
             navEnd: last.navUsdt!,
