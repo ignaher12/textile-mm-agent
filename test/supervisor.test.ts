@@ -17,6 +17,8 @@ const context: SupervisorContext = {
   market: null,
   stitchSpreadBpsPerSide: 20,
   ourQuotesFromRef: { bidForLocalBps: 10, offerOfLocalBps: 30 },
+  ourCapacityUsdt: { bidForLocal: 4.93, offerOfLocal: 0 },
+  recentFlow: null,
   fillsLast24h: 0,
   params: paramsView(DEFAULT_PARAMS),
   recentDecisions: [],

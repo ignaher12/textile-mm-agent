@@ -1,4 +1,5 @@
 import type { QuoteParams } from "../engine/params.js";
+import type { RecentFlow } from "../textile/flow.js";
 import type { MarketSnapshot } from "../textile/market.js";
 
 /** Everything the supervisor sees on one run, already summarized into plain numbers. */
@@ -18,6 +19,10 @@ export interface SupervisorContext {
   stitchSpreadBpsPerSide: number;
   /** Where our quotes sit right now, from our reference: the spread per side shifted by the skew. */
   ourQuotesFromRef: { bidForLocalBps: number; offerOfLocalBps: number } | null;
+  /** How much each of our quotes can fill, in USD₮: the bid spends USD₮, the offer sells local currency. */
+  ourCapacityUsdt: { bidForLocal: number; offerOfLocal: number };
+  /** Executed trades on the corridor (all makers), per direction. */
+  recentFlow: RecentFlow | null;
   fillsLast24h: number | null;
   params: { targetBaseShare: number; maxSkewBps: number; inventoryBand: number; paused: boolean; skewCapBps: number };
   recentDecisions: { time: string; reason: string }[];

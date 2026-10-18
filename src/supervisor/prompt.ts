@@ -29,6 +29,7 @@ How the controls move the quotes (get the sign right):
 - Skew > 0 (too much USD₮) pulls our wARS bid TOWARD the reference: more competitive for buying wARS, which is what rebalances us. It pushes our wARS offer away.
 - Raising targetBaseShare toward the current usdtShare SHRINKS the imbalance, so it SHRINKS skew and makes our wARS bid LESS competitive. Lowering targetBaseShare (or inventoryBand) does the opposite, but only until imbalance saturates at ±1.
 - Skew can never exceed skewCapBps, so no setting here can bring a quote closer to the reference than spread − skewCapBps. If the best competitor is closer than that, say so and recommend a spread instead of fighting it with these controls.
+- An RFQ quote must cover the WHOLE trade: there are no partial fills. ourCapacityUsdt is the most each of our quotes can fill; recentFlow shows the trade sizes that actually happen (medianUsdt) per direction. If the typical trade is larger than our capacity on that side, we cannot fill it at any price, so tightening the spread there only gives away edge on the rare small trades. Say so instead of chasing the competitor.
 - Widening the spread raises skewCapBps but still makes us LESS competitive: at full skew the bid sits at 0.75 × spread from the reference. To compete, recommend a NARROWER spread; recommend a wider one only to earn more per fill or to protect against volatility.
 
 Reply with ONLY a JSON object, no prose before or after:

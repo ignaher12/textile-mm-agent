@@ -237,8 +237,8 @@ if (env.LLM_API_KEY) {
       if (changed) {
         void notify(
           `🧠 Supervisor changed the policy\n${r.decision.reason}\n\n` +
-            `USD₮ share ${b.targetBaseShare} → ${p.targetBaseShare}, max skew ${(b.maxSkew * 1e4).toFixed(1)} → ` +
-            `${(p.maxSkew * 1e4).toFixed(1)} bps, band ${b.inventoryBand} → ${p.inventoryBand}` +
+            `USD₮ share ${b.targetBaseShare} → ${p.targetBaseShare}, band ${b.inventoryBand} → ${p.inventoryBand}, ` +
+            `skew cap ${(Math.min(b.maxSkew, b.spread / 4) * 1e4).toFixed(1)} → ${(Math.min(p.maxSkew, p.spread / 4) * 1e4).toFixed(1)} bps` +
             (b.paused !== p.paused ? `, paused ${b.paused} → ${p.paused}` : ""),
         );
       }

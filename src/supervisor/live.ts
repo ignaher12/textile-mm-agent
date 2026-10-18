@@ -3,6 +3,7 @@ import { findMakerFills } from "../chain/fills.js";
 import type { QuoteParams } from "../engine/params.js";
 import type { Inventory } from "../engine/quote.js";
 import type { RiskDecision } from "../risk/riskManager.js";
+import { fetchRecentFlow } from "../textile/flow.js";
 import { marketSnapshot } from "../textile/market.js";
 import { paramsView, type SupervisorContext, type createPriceHistory } from "./context.js";
 
@@ -30,9 +31,10 @@ export async function buildLiveContext(deps: {
   const { base: usdt, quote: local } = deps.inventory;
   const navUsdt = usdt + local / deps.refPrice;
 
-  const [market, fillsLast24h] = await Promise.all([
+  const [market, recentFlow, fillsLast24h] = await Promise.all([
     // Textile's mid isn't needed exactly here: our ref is within ~1% of it or the risk manager pauses.
     marketSnapshot(deps.me, 1 / deps.refPrice).catch(() => null),
+    fetchRecentFlow(7, now).catch(() => null),
     deps.client
       .getBlockNumber()
       .then((head) => findMakerFills(deps.client, deps.me, head - 86_400n, head))
@@ -61,6 +63,8 @@ export async function buildLiveContext(deps: {
           offerOfLocalBps: deps.stitchSpreadBpsPerSide + deps.skewNow.bps,
         }
       : null,
+    ourCapacityUsdt: { bidForLocal: usdt, offerOfLocal: local / deps.refPrice },
+    recentFlow,
     fillsLast24h,
     params: paramsView(deps.params),
     recentDecisions: deps.recentDecisions,

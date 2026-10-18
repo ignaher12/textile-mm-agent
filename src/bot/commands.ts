@@ -68,7 +68,8 @@ export function formatDecision(r: DecisionRecord | null): string {
     `🧠 ${r.time}`,
     d.reason,
     "",
-    `target USD₮ share ${d.targetBaseShare}, max skew ${d.maxSkewBps} bps, band ${d.inventoryBand}${d.paused ? ", PAUSED" : ""}`,
+    `target USD₮ share ${r.after.targetBaseShare}, band ${r.after.inventoryBand}, ` +
+      `skew cap ${(Math.min(r.after.maxSkew, r.after.spread / 4) * 1e4).toFixed(1)} bps${r.after.paused ? ", PAUSED" : ""}`,
     d.recommendedSpreadBps !== undefined ? `recommends Stitch spread ${d.recommendedSpreadBps} bps/side (not applied)` : null,
   ]
     .filter((l) => l !== null)

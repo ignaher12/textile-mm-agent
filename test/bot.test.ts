@@ -61,3 +61,17 @@ describe("handleCommand", () => {
     expect(handleCommand("/foo", deps().d)).toMatch(/Unknown command/);
   });
 });
+
+describe("/why", () => {
+  it("shows the effective skew cap, not the raw maxSkew", async () => {
+    const { DEFAULT_PARAMS } = await import("../src/engine/params.js");
+    const after = { ...DEFAULT_PARAMS, maxSkew: 0.01, targetBaseShare: 0.2 };
+    const record = {
+      time: "t", ok: true, error: null, before: DEFAULT_PARAMS, after, context: {} as never,
+      decision: { paused: false, targetBaseShare: 0.2, maxSkewBps: 100, inventoryBand: 0.35, recommendedSpreadBps: 8, reason: "r" },
+    };
+    const reply = handleCommand("/why", deps({ lastDecision: () => record }).d)!;
+    expect(reply).toMatch(/skew cap 10\.0 bps/);
+    expect(reply).toMatch(/recommends Stitch spread 8 bps\/side/);
+  });
+});
